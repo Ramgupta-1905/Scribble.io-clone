@@ -1,17 +1,24 @@
-
 import GameLogo from '../components/layout/GameLogo'
 import PlayerSetup from '../components/landing/PlayerSetup'
-import LandingActions from '../components/landing/LandingActions'
 import InfoSections from '../components/landing/InfoSections'
 import '../styles/LandingPage.css'
 
-function LandingPage() {
+type LandingPageProps = {
+  onPlay: () => void
+  onCreateRoom: () => void
+}
+
+function LandingPage({ onPlay, onCreateRoom }: LandingPageProps) {
   return (
     <main className="landing-page">
-        <div className="landing-main">
-  <GameLogo />
-  <PlayerSetup />
-</div>
+      <div className="landing-main">
+        <GameLogo />
+
+        <PlayerSetup
+          onPlay={onPlay}
+          onCreateRoom={onCreateRoom}
+        />
+      </div>
 
       <InfoSections />
 

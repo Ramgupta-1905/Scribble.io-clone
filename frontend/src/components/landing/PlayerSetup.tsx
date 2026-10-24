@@ -1,9 +1,13 @@
-
 import { useState } from 'react'
 import AvatarSelector from '../layout/AvatarSelector'
 import LandingActions from './LandingActions'
 
-function PlayerSetup() {
+type PlayerSetupProps = {
+  onPlay: () => void
+  onCreateRoom: () => void
+}
+
+function PlayerSetup({ onPlay, onCreateRoom }: PlayerSetupProps) {
   const [username, setUsername] = useState('')
   const [language, setLanguage] = useState('English')
 
@@ -36,7 +40,10 @@ function PlayerSetup() {
         <AvatarSelector />
       </div>
 
-      <LandingActions />
+      <LandingActions
+        onPlay={onPlay}
+        onCreateRoom={onCreateRoom}
+      />
     </section>
   )
 }
