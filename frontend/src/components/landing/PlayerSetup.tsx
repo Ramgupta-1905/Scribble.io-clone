@@ -3,13 +3,64 @@ import AvatarSelector from '../layout/AvatarSelector'
 import LandingActions from './LandingActions'
 
 type PlayerSetupProps = {
-  onPlay: () => void
-  onCreateRoom: () => void
+  onPlay: (username: string, language: string) => void
+  onCreateRoom: (username: string, language: string) => void
+  onJoinRoom: (
+    username: string,
+    language: string,
+    roomCode: string,
+  ) => void
 }
 
-function PlayerSetup({ onPlay, onCreateRoom }: PlayerSetupProps) {
+function PlayerSetup({
+  onPlay,
+  onCreateRoom,
+  onJoinRoom,
+}: PlayerSetupProps) {
   const [username, setUsername] = useState('')
   const [language, setLanguage] = useState('English')
+  const [roomCode, setRoomCode] = useState('')
+  const [error, setError] = useState('')
+
+  const getPlayerDetails = () => {
+    const name = username.trim()
+
+    if (!name) {
+      setError('Please enter your name before continuing.')
+      return null
+    }
+
+    setError('')
+    return { name, language }
+  }
+
+  const handlePlay = () => {
+    const player = getPlayerDetails()
+    if (!player) return
+
+    onPlay(player.name, player.language)
+  }
+
+  const handleCreateRoom = () => {
+    const player = getPlayerDetails()
+    if (!player) return
+
+    onCreateRoom(player.name, player.language)
+  }
+
+  const handleJoinRoom = () => {
+    const player = getPlayerDetails()
+    if (!player) return
+
+    const code = roomCode.trim().toUpperCase()
+
+    if (!code) {
+      setError('Please enter a room code.')
+      return
+    }
+
+    onJoinRoom(player.name, player.language, code)
+  }
 
   return (
     <section className="player-panel">
@@ -20,7 +71,10 @@ function PlayerSetup({ onPlay, onCreateRoom }: PlayerSetupProps) {
             placeholder="Enter your name"
             aria-label="Username"
             value={username}
-            onChange={(event) => setUsername(event.target.value)}
+            onChange={(event) => {
+              setUsername(event.target.value)
+              if (error) setError('')
+            }}
             maxLength={20}
           />
 
@@ -40,10 +94,31 @@ function PlayerSetup({ onPlay, onCreateRoom }: PlayerSetupProps) {
         <AvatarSelector />
       </div>
 
+      {error && <p role="alert">{error}</p>}
+
       <LandingActions
-        onPlay={onPlay}
-        onCreateRoom={onCreateRoom}
+        onPlay={handlePlay}
+        onCreateRoom={handleCreateRoom}
       />
+
+      <div className="join-room-controls">
+        <input
+          type="text"
+          placeholder="Enter room code"
+          aria-label="Room code"
+          value={roomCode}
+          onChange={(event) => {
+            setRoomCode(event.target.value.toUpperCase())
+            if (error) setError('')
+          }}
+          maxLength={6}
+          autoComplete="off"
+        />
+
+        <button type="button" onClick={handleJoinRoom}>
+          Join Room
+        </button>
+      </div>
     </section>
   )
 }

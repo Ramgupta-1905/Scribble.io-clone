@@ -1,9 +1,13 @@
+
 export type ChatMessage = {
   text: string
   type: string
 }
 
-export type DrawingPoint = { x: number; y: number }
+export type DrawingPoint = {
+  x: number
+  y: number
+}
 
 export type DrawingStroke = {
   color: string
@@ -12,75 +16,103 @@ export type DrawingStroke = {
   points: DrawingPoint[]
 }
 
-export const players = [
-  { rank: 1, name: 'Girl', points: 525, color: '#20dce8', face: '☺' },
-  { rank: 3, name: 'vxz', points: 165, color: '#ffcf9e', face: '☺' },
-  { rank: 4, name: 'son of a', points: 0, color: '#70e52b', face: '⌁' },
-  { rank: 2, name: 'Keerthana', points: 425, color: '#5367ff', face: '☺' },
-  { rank: 4, name: 'wonheelLLIT', points: 0, color: '#20dce8', face: '◉' },
-  { rank: 4, name: 'dhuruv (You)', points: 0, color: '#ff3434', face: '⌁' },
-  { rank: 4, name: 'Um', points: 0, color: '#f06acb', face: '☺' },
+export type Player = {
+  id: string
+  name: string
+  points: number
+  color: string
+  face: string
+  rank: number
+  isHost: boolean
+}
+
+export type RoomStatus = 'lobby' | 'playing' | 'finished'
+
+export type GameRoom = {
+  code: string
+  hostId: string
+  players: Player[]
+  settings: Record<string, string>
+  status: RoomStatus
+  isPrivate: boolean
+}
+
+export const players: Player[] = [
+  { id: '1', name: 'Girl', points: 120, color: '#f2b5a7', face: '👩', rank: 1, isHost: true },
+  { id: '2', name: 'vxz', points: 90, color: '#c8a5e8', face: '😎', rank: 2, isHost: false },
+  { id: '3', name: 'son of a', points: 70, color: '#f4d06f', face: '😄', rank: 3, isHost: false },
+  { id: '4', name: 'Keerthana', points: 50, color: '#8ecae6', face: '😊', rank: 4, isHost: false },
+  { id: '5', name: 'wonheelLLIT', points: 30, color: '#b7e4c7', face: '🐰', rank: 5, isHost: false },
+  { id: '6', name: 'dhuruv', points: 0, color: '#ffb703', face: '😎', rank: 6, isHost: false },
+  { id: '7', name: 'Um', points: 0, color: '#e5989b', face: '🙂', rank: 7, isHost: false },
 ]
 
 export const initialMessages: ChatMessage[] = [
-  { text: 'Girl is drawing now!', type: 'notice' },
-  { text: 'Um joined the room!', type: 'success' },
-  { text: 'Keerthana guessed the word!', type: 'success' },
-  { text: 'w left the room!', type: 'warning' },
+  { text: 'Welcome to the room!', type: 'system' },
 ]
 
 export const settingOptions = [
   {
-    label: 'Max players',
-    icon: '♟',
-    name: 'players',
-    options: Array.from({ length: 19 }, (_, index) => String(index + 2)),
+    name: 'Max Players',
+    label: 'Max Players',
+    icon: '👥',
     initial: '8',
+    options: ['2', '4', '6', '8', '10', '12'],
   },
   {
-    label: 'Draw time (seconds)',
-    icon: '◷',
-    name: 'drawtime',
-    options: Array.from({ length: 46 }, (_, index) => String(15 + index * 5)),
+    name: 'Draw Time',
+    label: 'Draw Time',
+    icon: '⏱️',
     initial: '80',
+    options: ['30', '60', '80', '100', '120'],
   },
   {
+    name: 'Rounds',
     label: 'Rounds',
-    icon: '◉',
-    name: 'rounds',
-    options: ['2', '3', '4', '5', '6', '7', '8', '9', '10'],
+    icon: '🔄',
     initial: '3',
+    options: ['1', '2', '3', '4', '5', '6', '8', '10'],
   },
   {
-    label: 'Word mode',
-    icon: '⌁',
-    name: 'gameMode',
-    options: ['Normal', 'Hidden', 'Combination'],
+    name: 'Game Mode',
+    label: 'Game Mode',
+    icon: '🎮',
     initial: 'Normal',
+    options: ['Normal', 'Quick', 'Custom'],
   },
   {
-    label: 'Word count',
-    icon: '▱',
-    name: 'wordCount',
-    options: ['1', '2', '3', '4', '5'],
+    name: 'Word Count',
+    label: 'Word Count',
+    icon: '📝',
     initial: '3',
+    options: ['1', '2', '3'],
   },
   {
+    name: 'Hints',
     label: 'Hints',
-    icon: '?',
-    name: 'hints',
-    options: ['Disabled', '0', '1', '2', '3', '4', '5'],
-    initial: '2',
+    icon: '💡',
+    initial: 'On',
+    options: ['On', 'Off'],
   },
 ]
 
 export const palette = [
-  '#ffffff', '#bdbdbd', '#ff0000', '#ff6500', '#ffdf00',
-  '#00c900', '#00f0a0', '#00b9f5', '#2020df', '#7500c8',
-  '#b400bf', '#dc5c9c', '#ffad91',
-  '#000000', '#555555', '#8d0000', '#b74300', '#8b7800',
-  '#005c20', '#00785b', '#005d8b', '#111166', '#47005e',
-  '#65004c', '#8d385b', '#a85a3b',
+  '#000000',
+  '#ffffff',
+  '#808080',
+  '#c0c0c0',
+  '#ff0000',
+  '#ff7f00',
+  '#ffff00',
+  '#00ff00',
+  '#00ffff',
+  '#0000ff',
+  '#8b00ff',
+  '#ff69b4',
+  '#8b4513',
+  '#008000',
+  '#800080',
+  '#ffc0cb',
 ]
 
-export const brushSizes = [2, 4, 7, 11, 16]
+export const brushSizes = [2, 4, 8, 12, 18, 24]

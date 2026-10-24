@@ -1,5 +1,6 @@
+
 import type { CSSProperties } from 'react'
-import { brushSizes, palette } from './gameTypes'
+import { brushSizes, palette } from './GameTypes'
 
 type DrawingToolbarProps = {
   drawingTool: 'pencil' | 'eraser'
@@ -41,23 +42,43 @@ export default function DrawingToolbar({
   onUndo,
   onClear,
 }: DrawingToolbarProps) {
+  const currentBrushIndex = brushSizes.indexOf(brushSize)
+
+  const nextBrushSize =
+    currentBrushIndex === -1
+      ? brushSizes[0]
+      : brushSizes[(currentBrushIndex + 1) % brushSizes.length]
+
+  const canClear =
+    strokeCount > 0 || canvasBackground !== '#ffffff'
+
   return (
-    <div className="drawing-toolbar" role="toolbar" aria-label="Drawing tools">
+    <div
+      className="drawing-toolbar"
+      role="toolbar"
+      aria-label="Drawing tools"
+    >
       <button
         type="button"
         className="drawing-current-color"
         title={`Current color: ${drawingColor}`}
         style={{ backgroundColor: drawingColor }}
-        aria-label={`Current color ${drawingColor}`}
+        aria-label={`Current color ${drawingColor}; select pencil`}
         onClick={() => onSelectTool('pencil')}
       />
 
-      <div className="drawing-palette" role="group" aria-label="Color palette">
+      <div
+        className="drawing-palette"
+        role="group"
+        aria-label="Color palette"
+      >
         {palette.map((color) => (
           <button
             key={color}
             type="button"
-            className={`drawing-color-swatch ${drawingColor === color ? 'selected' : ''}`}
+            className={`drawing-color-swatch ${
+              drawingColor === color ? 'selected' : ''
+            }`}
             style={{ backgroundColor: color }}
             aria-label={`Select color ${color}`}
             aria-pressed={drawingColor === color}
@@ -72,16 +93,22 @@ export default function DrawingToolbar({
           type="button"
           className="drawing-size-menu-trigger"
           aria-label={`Brush size ${brushSize}; click to change size`}
-          title="Change brush size"
-          onClick={() => {
-            const index = brushSizes.indexOf(brushSize)
-            onSelectBrushSize(brushSizes[(index + 1) % brushSizes.length])
-          }}
+          title={`Brush size: ${brushSize}px. Click to change.`}
+          onClick={() => onSelectBrushSize(nextBrushSize)}
         >
-          <span className="drawing-size-chevron" aria-hidden="true">⌃</span>
+          <span
+            className="drawing-size-chevron"
+            aria-hidden="true"
+          >
+            ⌃
+          </span>
+
           <span
             className="drawing-size-preview"
-            style={{ width: brushSize + 3, height: brushSize + 3 }}
+            style={{
+              width: brushSize + 3,
+              height: brushSize + 3,
+            }}
           />
         </button>
       </div>
@@ -89,7 +116,9 @@ export default function DrawingToolbar({
       <div className="drawing-tool-buttons">
         <button
           type="button"
-          className={`drawing-tool-button drawing-pencil-button ${drawingTool === 'pencil' ? 'selected' : ''}`}
+          className={`drawing-tool-button drawing-pencil-button ${
+            drawingTool === 'pencil' ? 'selected' : ''
+          }`}
           style={toolbarButtonStyle(drawingTool === 'pencil')}
           aria-label="Pencil"
           aria-pressed={drawingTool === 'pencil'}
@@ -98,9 +127,12 @@ export default function DrawingToolbar({
         >
           ✏
         </button>
+
         <button
           type="button"
-          className={`drawing-tool-button drawing-eraser-button ${drawingTool === 'eraser' ? 'selected' : ''}`}
+          className={`drawing-tool-button drawing-eraser-button ${
+            drawingTool === 'eraser' ? 'selected' : ''
+          }`}
           style={toolbarButtonStyle(drawingTool === 'eraser')}
           aria-label="Eraser"
           aria-pressed={drawingTool === 'eraser'}
@@ -117,19 +149,20 @@ export default function DrawingToolbar({
         type="button"
         className="drawing-tool-button drawing-undo-button"
         aria-label="Undo last stroke"
-        title="Undo"
+        title="Undo last stroke"
         onClick={onUndo}
         disabled={strokeCount === 0}
       >
         ↶
       </button>
+
       <button
         type="button"
         className="drawing-tool-button drawing-clear-button"
         aria-label="Clear canvas"
         title="Clear canvas"
         onClick={onClear}
-        disabled={strokeCount === 0 && canvasBackground === '#ffffff'}
+        disabled={!canClear}
       >
         🗑
       </button>

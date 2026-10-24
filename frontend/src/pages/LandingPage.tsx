@@ -4,11 +4,20 @@ import InfoSections from '../components/landing/InfoSections'
 import '../styles/LandingPage.css'
 
 type LandingPageProps = {
-  onPlay: () => void
-  onCreateRoom: () => void
+  onPlay: (username: string, language: string) => void
+  onCreateRoom: (username: string, language: string) => void
+  onJoinRoom: (
+    username: string,
+    language: string,
+    roomCode: string,
+  ) => void
 }
 
-function LandingPage({ onPlay, onCreateRoom }: LandingPageProps) {
+function LandingPage({
+  onPlay,
+  onCreateRoom,
+  onJoinRoom,
+}: LandingPageProps) {
   return (
     <main className="landing-page">
       <div className="landing-main">
@@ -17,6 +26,7 @@ function LandingPage({ onPlay, onCreateRoom }: LandingPageProps) {
         <PlayerSetup
           onPlay={onPlay}
           onCreateRoom={onCreateRoom}
+          onJoinRoom={onJoinRoom}
         />
       </div>
 

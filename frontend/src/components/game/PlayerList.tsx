@@ -1,29 +1,63 @@
-import { players } from './gameTypes'
 
-export default function PlayerList() {
+import type { Player } from './GameTypes'
+
+type PlayerListProps = {
+  players: Player[]
+  currentPlayerId?: string
+  currentDrawerId?: string
+  isGameActive?: boolean
+}
+
+export default function PlayerList({
+  players,
+  currentPlayerId,
+  currentDrawerId,
+  isGameActive = false,
+}: PlayerListProps) {
+  const rankedPlayers = [...players].sort(
+    (a, b) => b.points - a.points,
+  )
+
   return (
     <aside className="player-list" aria-label="Players">
-      {players.map((player) => (
-        <div
-          key={player.name}
-          className={`player-row ${
-            player.name === 'dhuruv (You)' ? 'player-active' : ''
-          }`}
-        >
-          <span className="player-rank">#{player.rank}</span>
-          <div className="player-details">
-            <strong>{player.name}</strong>
-            <span>{player.points} points</span>
-          </div>
+      {rankedPlayers.map((player, index) => {
+        const isCurrentPlayer = player.id === currentPlayerId
+        const isDrawer =
+          isGameActive && player.id === currentDrawerId
+
+        return (
           <div
-            className="player-avatar"
-            style={{ backgroundColor: player.color }}
-            aria-hidden="true"
+            key={player.id}
+            className={`player-row ${
+              isCurrentPlayer ? 'player-active' : ''
+            }`}
+            aria-label={`${player.name}, ${player.points} points${
+              isDrawer ? ', drawing now' : ''
+            }`}
           >
-            {player.face}
+            <span className="player-rank">#{index + 1}</span>
+
+            <div className="player-details">
+              <strong>
+                {player.name}
+                {isCurrentPlayer ? ' (You)' : ''}
+              </strong>
+              <span>
+                {player.points} points
+                {isDrawer ? ' · Drawing' : ''}
+              </span>
+            </div>
+
+            <div
+              className="player-avatar"
+              style={{ backgroundColor: player.color }}
+              aria-hidden="true"
+            >
+              {player.face}
+            </div>
           </div>
-        </div>
-      ))}
+        )
+      })}
     </aside>
   )
 }

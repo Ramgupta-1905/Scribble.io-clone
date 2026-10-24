@@ -531,20 +531,23 @@
   display: flex;
   flex-direction: column;
   align-items: stretch;
+  justify-content: flex-start;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding-top: 4px;
+  padding: 0;
+  gap: 0;
 }
 
 .chat-message {
   padding: 5px 4px;
   font-size: 14px;
   overflow-wrap: anywhere;
+  
 }
 
 .chat-notice {
-  margin-top: auto;
+  margin : 0;
   color: #2876d2;
 }
 

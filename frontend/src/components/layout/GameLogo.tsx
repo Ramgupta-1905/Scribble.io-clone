@@ -1,6 +1,4 @@
 
-import React from 'react'
-
 const characters = [
   { color: '#ff3434', face: 'glasses', mouth: 'smile' },
   { color: '#ff941e', face: 'round', mouth: 'open' },
