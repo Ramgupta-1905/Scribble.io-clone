@@ -1,0 +1,801 @@
+
+/* =========================================
+   Global layout and background
+========================================= */
+
+html,
+body,
+#root {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  overflow-x: hidden;
+}
+
+.landing-page {
+  width: 100%;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 32px 24px 20px;
+  background-color: #3974b8;
+  background-image: url('/images/doodle-background.png');
+  background-repeat: repeat;
+  background-position: left top;
+  background-size: 800px 534px;
+  background-blend-mode: multiply;
+  color: #fff;
+  font-family: Arial, Helvetica, sans-serif;
+  overflow-x: clip;
+}
+
+/* =========================================
+   Logo and main layout
+========================================= */
+
+.landing-main {
+  width: 100%;
+  max-width: 900px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 36px;
+}
+
+.game-logo {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+
+.game-logo .game-logo-title {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-wrap: nowrap;
+  margin: 0;
+  font-family: "Comic Sans MS", "Chalkboard SE", cursive;
+  font-size: clamp(48px, 7vw, 96px);
+  font-weight: 900;
+  line-height: 1.1;
+  letter-spacing: -4px;
+  -webkit-text-stroke: 2px #080b18;
+  paint-order: stroke fill;
+  filter: drop-shadow(3px 4px 0 #17466e);
+  white-space: nowrap;
+}
+
+.logo-letter {
+  display: inline-block;
+  font-family: "Comic Sans MS", "Chalkboard SE", cursive;
+  font-weight: 900;
+  -webkit-text-stroke: 2px #080b18;
+  paint-order: stroke fill;
+}
+
+
+/* Pencil replacing the final exclamation mark */
+.logo-pencil {
+  position: relative;
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 0.27em;
+  height: 0.82em;
+  margin-left: 0.04em;
+  transform: rotate(18deg) translateY(-0.04em);
+  filter: drop-shadow(2px 3px 0 #111);
+}
+
+.pencil-body {
+  position: absolute;
+  top: 12%;
+  left: 19%;
+  width: 62%;
+  height: 68%;
+  border: 2px solid #080808;
+  background: linear-gradient(
+    90deg,
+    #ff8618 0 35%,
+    #ffb02e 35% 60%,
+    #ff8618 60% 100%
+  );
+  box-sizing: border-box;
+}
+
+.pencil-eraser {
+  position: absolute;
+  top: 2%;
+  left: 10%;
+  width: 80%;
+  height: 15%;
+  border: 2px solid #080808;
+  background: #f06acb;
+  box-sizing: border-box;
+}
+
+.pencil-tip {
+  position: absolute;
+  bottom: 0;
+  left: 19%;
+  width: 62%;
+  height: 23%;
+  border: 2px solid #080808;
+  background: #f5d2a0;
+  clip-path: polygon(0 0, 100% 0, 50% 100%);
+  box-sizing: border-box;
+}
+
+/* Avatar row — unchanged */
+
+.logo-characters {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 0;
+  width: 100%;
+  margin-top: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.logo-character {
+  display: block;
+  width: 42px;
+  height: 50px;
+  flex: 0 0 auto;
+  border: none;
+  border-radius: 0;
+  outline: none;
+  box-shadow: none;
+  background: transparent;
+  overflow: visible;
+}
+
+
+.logo-character:nth-child(even) {
+  transform: rotate(2deg);
+}
+
+.character-eyes {
+  margin-top: 3px;
+  color: #080b18;
+  font-size: 15px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  line-height: 1;
+}
+
+.character-mouth {
+  width: 12px;
+  height: 5px;
+  margin-top: 3px;
+  border-bottom: 3px solid #080b18;
+  border-radius: 50%;
+}
+
+
+/* =========================================
+   Shared player card
+   Setup and buttons stay in one card
+========================================= */
+
+.player-panel {
+  width: 100%;
+  max-width: 400px;
+  padding: 10px 14px;
+  border-radius: 4px;
+  background: rgba(10, 42, 139, 0.88);
+  margin-top: 7px;
+  box-sizing: border-box;
+}
+
+/* Player setup */
+
+.player-setup {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #fff;
+}
+
+.player-setup h2 {
+  color: #fff;
+  text-align: center;
+}
+
+/* Username and language */
+
+.player-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 0.8fr);
+  gap: 5px;
+  width: 100%;
+}
+
+.player-setup input,
+.player-setup select {
+  width: 100%;
+  min-width: 0;
+  height: 35px;
+  padding: 8px 10px;
+  border: 1px solid #ccc;
+  border-radius: 2px;
+  background: #fff;
+  color: #333;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 15px;
+  box-sizing: border-box;
+}
+
+/* =========================================
+   Avatar selector
+   Three arrow rows: eyes, color, mouth
+========================================= */
+
+.avatar-selector {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 148px;
+  min-height: 0;
+  margin: 6px 0;
+  padding: 0;
+  background: rgba(35, 20, 108, 0.48);
+  border-radius: 3px;
+  box-sizing: border-box;
+}
+
+/* Three vertically stacked controls on each side */
+
+.avatar-arrows {
+  position: absolute;
+  top: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  transform: translateY(-50%);
+  z-index: 2;
+}
+
+.avatar-arrows-left {
+  left: calc(50% - 120px);
+}
+
+.avatar-arrows-right {
+  right: calc(50% - 120px);
+}
+
+.avatar-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #fff;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 31px;
+  font-weight: 900;
+  line-height: 1;
+  -webkit-text-stroke: 1px #000;
+  text-shadow: 2px 2px #000, -2px -2px #000;
+  cursor: pointer;
+  transition: color 0.15s ease, transform 0.15s ease;
+}
+
+.avatar-arrow:hover {
+  color: #ff941e;
+  filter: none;
+}
+
+.avatar-arrow:active {
+  transform: scale(0.92);
+}
+
+.avatar-arrow:focus-visible,
+.random-avatar:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+/* Avatar centered between the arrow columns */
+
+.pixel-avatar {
+  display: block;
+  flex: 0 0 120px;
+  width: 120px;
+  height: 138px;
+  margin: 0;
+  image-rendering: pixelated;
+}
+
+/* Dice in the upper-right corner */
+
+.random-avatar {
+  position: absolute;
+  top: 5px;
+  right: 8px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font-size: 25px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.random-avatar:hover {
+  transform: scale(1.08);
+}
+
+/* Small-screen avatar adjustments */
+
+@media (max-width: 480px) {
+  .avatar-selector {
+    height: 138px;
+    min-height: 0;
+  }
+
+  .pixel-avatar {
+    transform: scale(0.8);
+  }
+
+  .avatar-arrows-left {
+    left: calc(50% - 105px);
+  }
+
+  .avatar-arrows-right {
+    right: calc(50% - 105px);
+  }
+
+  .avatar-arrow {
+    width: 30px;
+    height: 38px;
+    font-size: 27px;
+  }
+}
+
+
+/* =========================================
+   Play and private room buttons
+========================================= */
+
+.landing-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  margin: 6px 0 0;
+  padding: 0;
+}
+
+.landing-actions button {
+  display: block;
+  width: 100%;
+  min-height: 42px;
+  margin: 0;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 3px;
+  color: #fff;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 18px;
+  font-weight: bold;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.play-button {
+  background: #4be52e;
+}
+
+.create-room-button {
+  background: #2995e8;
+}
+
+/* Button hover effects */
+
+.play-button:hover {
+  background: #3bd51e;
+}
+
+.create-room-button:hover {
+  background: #1685d8;
+}
+
+/* Small-screen adjustments */
+
+@media (max-width: 480px) {
+  .player-panel {
+    max-width: 100%;
+    padding: 12px;
+  }
+
+  .player-fields {
+    grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+  }
+
+  .player-setup input,
+  .player-setup select {
+    padding: 7px;
+    font-size: 14px;
+  }
+
+  .landing-actions button {
+    min-height: 42px;
+    font-size: 16px;
+  }
+}
+
+
+/* =========================================
+   Information section background and layout
+========================================= */
+
+.info-sections {
+  position: relative;
+  isolation: isolate;
+  width: 75%;
+  max-width: 1320px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: start;
+  gap: 18px;
+  margin: 24px auto;
+  padding: 0 4px;
+}
+
+/* Full-width tilted blue strip */
+
+.info-sections::before {
+  content: "";
+  position: absolute;
+  top: -32px;
+  bottom: -120px;
+  left: calc((100% - 100vw) / 2);
+  width: 100vw;
+  background: rgba(13, 43, 139, 0.82);
+  clip-path: polygon(0 0, 100% 6%, 100% 100%, 0 100%);
+  z-index: -1;
+  pointer-events: none;
+}
+
+/* Information cards */
+
+.info-card {
+  width: 110%;
+  min-width: 0;
+  min-height: 320px;
+  padding: 18px 16px;
+  background: rgba(10, 39, 132, 0.76);
+  color: #fff;
+  margin-top: 15px;
+  border-radius: 2px;
+  box-sizing: border-box;
+}
+
+/* Card headings and icons */
+
+.info-heading {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) 30px;
+  align-items: center;
+  margin-bottom: 18px;
+  text-align: center;
+}
+
+.info-heading h2 {
+  margin: 0;
+  color: #fff;
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.info-icon {
+  font-size: 24px;
+  text-align: left;
+}
+
+/* =========================================
+   About card
+========================================= */
+
+.about-content {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.about-content p {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+.about-content strong {
+  font-weight: 700;
+}
+
+/* =========================================
+   News card
+========================================= */
+
+.news-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.news-content {
+  min-height: 0;
+  max-height: 390px;
+  overflow-y: auto;
+  padding-right: 8px;
+  font-size: 16px;
+  line-height: 1.4;
+  scrollbar-width: auto;
+  scrollbar-color: #1749d1 rgba(0, 0, 0, 0.12);
+}
+
+.news-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  padding-bottom: 4px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.65);
+}
+
+.news-title strong {
+  font-size: 17px;
+  text-decoration: none;
+}
+
+.news-title time {
+  flex-shrink: 0;
+  font-size: 12px;
+}
+
+.news-item p {
+  margin: 0 0 2px;
+}
+
+.news-item ul {
+  padding-left: 25px;
+}
+
+.news-item ul ul {
+  padding-left: 25px;
+  font-size: 14px;
+}
+
+.news-item li {
+  overflow-wrap: anywhere;
+}
+
+/* =========================================
+   How to play card
+========================================= */
+
+.how-to-play-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.house-illustration {
+  width: 100%;
+  max-width: 260px;
+  height: auto;
+  margin: 8px auto 16px;
+  color: #fff;
+}
+
+.how-to-play-content p {
+  margin: 0 0 20px;
+  font-size: 16px;
+  line-height: 1.45;
+}
+
+.how-to-play-illustration {
+  width: 100%;
+  max-width: 260px;
+  height: 220px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 8px auto 16px;
+  font-size: 100px;
+}
+
+/* Carousel dots */
+
+.carousel-dots {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-top: auto;
+  padding-top: 12px;
+}
+
+.carousel-dots button {
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+}
+
+.carousel-dots button.active-dot {
+  background: #fff;
+}
+
+.carousel-dots button:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 3px;
+}
+
+/* =========================================
+   Footer
+========================================= */
+
+.landing-footer {
+  position: relative;
+  z-index: 0;
+  width: 100%;
+  margin-top: auto;
+  padding-top: 20px;
+  color: #eaf5fc;
+  font-size: 12px;
+  line-height: 1.6;
+  text-align: center;
+}
+
+.landing-footer p {
+  margin: 4px 0;
+}
+
+/* =========================================
+   Tablet layout
+========================================= */
+
+@media (max-width: 900px) {
+  .landing-page {
+    padding: 24px 16px;
+  }
+
+  .info-sections {
+    width: 100%;
+    max-width: 620px;
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+
+  .info-card {
+    min-height: auto;
+  }
+
+  .news-content {
+    max-height: 320px;
+  }
+
+  .about-content p,
+  .how-to-play-content p {
+    font-size: 18px;
+  }
+}
+
+/* =========================================
+   Mobile layout
+========================================= */
+
+@media (max-width: 600px) {
+  .landing-page {
+    padding: 24px 12px 20px;
+  }
+
+  .landing-main {
+    gap: 14px;
+    margin-bottom: 28px;
+  }
+
+  .game-logo .game-logo-title {
+    font-size: clamp(38px, 10vw, 52px);
+    letter-spacing: -2px;
+    -webkit-text-stroke-width: 1.5px;
+  }
+
+  .logo-characters {
+    gap: 3px;
+  }
+
+  .logo-character {
+    width: 27px;
+    height: 33px;
+    border-width: 2px;
+  }
+
+  .player-panel {
+    padding: 12px;
+  }
+
+  .player-fields {
+    grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+  }
+
+  .player-setup input,
+  .player-setup select {
+    height: 42px;
+    padding: 8px;
+    font-size: 14px;
+  }
+
+  .avatar-selector {
+    min-height: 112px;
+  }
+
+  .pixel-avatar {
+    transform: scale(0.75);
+    margin: 0 -5px;
+  }
+
+  .avatar-arrow {
+    width: 30px;
+    font-size: 28px;
+  }
+
+  .landing-actions button {
+    min-height: 42px;
+    font-size: 16px;
+  }
+
+  .info-sections {
+    width: 100%;
+    padding: 0;
+  }
+
+  .info-card {
+    padding: 16px;
+  }
+
+  .info-heading h2 {
+    font-size: 22px;
+  }
+
+  .news-title {
+    flex-wrap: wrap;
+  }
+}
