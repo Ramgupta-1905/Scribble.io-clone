@@ -45,7 +45,7 @@ export default function ChatPanel({
       >
         {messages.map((message, index) => (
           <div
-            key={`${message.text}-${index}`}
+            key={message.id ?? `${message.timestamp ?? 'local'}-${index}`}
             className={`chat-message chat-${message.type}`}
           >
             {message.text}
@@ -75,6 +75,9 @@ export default function ChatPanel({
           maxLength={100}
           disabled={disabled}
         />
+        <button type="submit" disabled={disabled || !guess.trim()}>
+          Send
+        </button>
       </form>
     </aside>
   )

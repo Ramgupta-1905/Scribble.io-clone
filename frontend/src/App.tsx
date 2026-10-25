@@ -158,6 +158,7 @@ function AppRoutes() {
   const [room, setRoom] = useState<GameRoom | null>(null)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [error, setError] = useState('')
+  const [isReconnecting, setIsReconnecting] = useState(!socket.connected)
 
   const previousPathRef = useRef(location.pathname)
   const restoredSessionRef = useRef<{
@@ -289,7 +290,25 @@ useEffect(() => {
       }
     }
 
-    const onSessionRestoreFailed = (payload: { message?: string }) => {
+    const onSessionRestoreFailed = (payload: {
+      roomCode?: string
+      definitive?: boolean
+      message?: string
+    }) => {
+      const requestedRoomCode = new URLSearchParams(location.search)
+        .get('room')
+        ?.toUpperCase()
+
+      if (
+        !payload.definitive ||
+        (payload.roomCode &&
+          requestedRoomCode &&
+          payload.roomCode.toUpperCase() !== requestedRoomCode)
+      ) {
+        setError(payload.message || 'Unable to restore the room yet.')
+        return
+      }
+
       restoredSessionRef.current = null
       localStorage.removeItem(SESSION_STORAGE_KEY)
       setRoom(null)
@@ -330,7 +349,24 @@ useEffect(() => {
       socket.off('room_state', onRoomState)
       socket.off('game_error', onError)
     }
-  }, [navigate, location.pathname])
+  }, [navigate, location.pathname, location.search])
+
+  useEffect(() => {
+    const onConnect = () => setIsReconnecting(false)
+    const onDisconnect = () => setIsReconnecting(true)
+
+    socket.on('connect', onConnect)
+    socket.on('disconnect', onDisconnect)
+
+    if (socket.connected) {
+      setIsReconnecting(false)
+    }
+
+    return () => {
+      socket.off('connect', onConnect)
+      socket.off('disconnect', onDisconnect)
+    }
+  }, [])
 
   useEffect(() => {
     if (!socket.connected) {
@@ -554,6 +590,11 @@ useEffect(() => {
       {error && (
         <div role="alert" className="network-error">
           {error}
+        </div>
+      )}
+      {isReconnecting && location.pathname === '/game' && (
+        <div role="status" className="connection-status">
+          Connection lost. Reconnecting and restoring your room...
         </div>
       )}
 

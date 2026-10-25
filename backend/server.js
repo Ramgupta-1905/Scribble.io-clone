@@ -39,6 +39,7 @@ const io = new Server(server, {
 
 
 const PORT = process.env.PORT || 3001
+const RECONNECT_GRACE_PERIOD_MS = 120_000
 const rooms = new Map()
 const socketRooms = new Map()
 
@@ -258,14 +259,26 @@ function makeCode() {
 }
 
 function clearTurnTimer(room) {
+  room.turnTimerVersion = (room.turnTimerVersion || 0) + 1
   if (room.timer) clearTimeout(room.timer)
   room.timer = null
   room.deadline = null
 }
 
 function clearTransitionTimer(room) {
+  room.transitionTimerVersion = (room.transitionTimerVersion || 0) + 1
   if (room.transitionTimer) clearTimeout(room.transitionTimer)
   room.transitionTimer = null
+}
+
+function deleteRoom(room) {
+  if (rooms.get(room.code) !== room || room.players.length > 0) return false
+
+  clearTurnTimer(room)
+  clearTransitionTimer(room)
+  rooms.delete(room.code)
+  emitPublicRooms()
+  return true
 }
 
 function shuffle(items) {
@@ -348,6 +361,7 @@ function finishGame(room) {
   )
 
   io.to(room.code).emit('game_over', {
+    roomCode: room.code,
     winner: leaderboard[0] ? publicPlayer(leaderboard[0]) : null,
     leaderboard: leaderboard.map(publicPlayer),
   })
@@ -361,6 +375,20 @@ function endTurn(room, finishedRoundOverride) {
 
   clearTurnTimer(room)
 
+  if (room.activeStroke) {
+    const completedStroke = room.activeStroke
+    room.strokes.push(completedStroke)
+    if (completedStroke.strokeId) {
+      room.completedStrokeIds.add(completedStroke.strokeId)
+    }
+    room.activeStroke = null
+    io.to(room.code).emit('draw_end', {
+      roomCode: room.code,
+      strokeId: completedStroke.strokeId,
+      stroke: completedStroke,
+    })
+  }
+
   // Award each successful guesser's pending points once, at turn end.
   for (const [playerId, points] of room.pendingScores) {
     const player = room.players.find((item) => item.id === playerId)
@@ -372,6 +400,7 @@ function endTurn(room, finishedRoundOverride) {
 
   for (const player of room.players) {
     io.to(player.id).emit('round_end', {
+      roomCode: room.code,
       word: room.word,
       scores: room.players.map(publicPlayer),
       hasGuessedCorrectly: room.correctGuessers.has(player.id),
@@ -384,11 +413,19 @@ function endTurn(room, finishedRoundOverride) {
 
   clearTransitionTimer(room)
 
+  const transitionVersion = room.transitionTimerVersion
   room.transitionTimer = setTimeout(() => {
+    if (
+      rooms.get(room.code) !== room ||
+      room.transitionTimerVersion !== transitionVersion ||
+      room.status !== 'roundEnded'
+    ) {
+      return
+    }
+
     room.transitionTimer = null
 
-    if (!rooms.has(room.code) || room.players.length === 0) return
-    if (room.status !== 'roundEnded') return
+    if (room.players.length === 0) return
 
     const finishedRound =
       finishedRoundOverride ??
@@ -427,6 +464,7 @@ function beginTurn(room) {
   room.pendingScores.clear()
   room.strokes = []
   room.activeStroke = null
+  room.completedStrokeIds.clear()
   room.hintCount = 0
 
   const drawer = room.players[room.drawerIndex]
@@ -446,6 +484,7 @@ function beginTurn(room) {
   }
 
   io.to(room.code).emit('round_start', {
+    roomCode: room.code,
     round: room.round,
     drawerId: drawer.id,
     drawTime: room.settings.drawTime,
@@ -465,7 +504,9 @@ function beginTurn(room) {
 function startTimer(room) {
   clearTurnTimer(room)
 
-  room.deadline = Date.now() + room.settings.drawTime * 1000
+  const deadline = Date.now() + room.settings.drawTime * 1000
+  const timerVersion = room.turnTimerVersion
+  room.deadline = deadline
 
 console.log('[TIMER START]', {
   room: room.code,
@@ -475,6 +516,16 @@ console.log('[TIMER START]', {
 })
 
   room.timer = setTimeout(() => {
+    if (
+      rooms.get(room.code) !== room ||
+      room.turnTimerVersion !== timerVersion ||
+      room.status !== 'playing' ||
+      room.deadline !== deadline
+    ) {
+      return
+    }
+
+    room.timer = null
     endTurn(room)
   }, room.settings.drawTime * 1000)
 
@@ -536,10 +587,13 @@ function createRoom(socket, payload = {}) {
     messages: [],
     strokes: [],
     activeStroke: null,
+    completedStrokeIds: new Set(),
     hintCount: 0,
     timer: null,
     deadline: null,
     transitionTimer: null,
+    turnTimerVersion: 0,
+    transitionTimerVersion: 0,
   }
 
   rooms.set(code, room)
@@ -705,7 +759,10 @@ function joinRoom(socket, payload = {}) {
 
     if (room.status === 'playing') {
       socket.emit('draw_history', {
-        strokes: room.strokes,
+        roomCode: room.code,
+        strokes: room.activeStroke
+          ? [...room.strokes, room.activeStroke]
+          : room.strokes,
       })
     }
   }
@@ -840,7 +897,7 @@ function chooseWord(socket, payload = {}) {
   room.strokes = []
   room.activeStroke = null
 
-  io.to(room.code).emit('canvas_clear', {})
+  io.to(room.code).emit('canvas_clear', { roomCode: room.code })
   sendChat(room, `${drawer.name} is drawing.`, 'notice')
   emitPublicRooms()
 
@@ -864,6 +921,13 @@ function submitGuess(socket, payload = {}) {
     return fail(socket, 'Join a room before guessing.')
   }
 
+  if (
+    payload?.roomCode &&
+    String(payload.roomCode).trim().toUpperCase() !== room.code
+  ) {
+    return fail(socket, 'That guess belongs to a different room.')
+  }
+
   if (room.status !== 'playing') return
 
   const drawer = room.players[room.drawerIndex]
@@ -879,6 +943,12 @@ function submitGuess(socket, payload = {}) {
     normalizeAnswer(text) === normalizeAnswer(String(room.word || ''))
 
   if (!correct) {
+    socket.emit('guess_result', {
+      id: crypto.randomUUID(),
+      roomCode: room.code,
+      correct: false,
+      playerId: player.id,
+    })
     sendChat(room, `${player.name}: ${text}`, 'chat')
     return
   }
@@ -894,6 +964,7 @@ function submitGuess(socket, payload = {}) {
   room.pendingScores.set(player.id, points)
 
   io.to(room.code).emit('guess_result', {
+    roomCode: room.code,
     correct: true,
     playerId: player.id,
     points,
@@ -915,6 +986,13 @@ function submitChat(socket, payload = {}) {
     return fail(socket, 'Join a room before sending chat messages.')
   }
 
+  if (
+    payload?.roomCode &&
+    String(payload.roomCode).trim().toUpperCase() !== room.code
+  ) {
+    return fail(socket, 'That message belongs to a different room.')
+  }
+
   const text =
     typeof payload?.text === 'string' ? payload.text.trim().slice(0, 250) : ''
   if (!text) return
@@ -924,57 +1002,128 @@ function submitChat(socket, payload = {}) {
 
 
 
-function drawEvent(socket, event, payload = {}) {
+function sanitizeStroke(payload) {
+  if (
+    !payload ||
+    !Array.isArray(payload.points) ||
+    payload.points.length === 0 ||
+    payload.points.length > 10000
+  ) {
+    return null
+  }
+
+  const points = []
+  for (const point of payload.points) {
+    const x = Number(point?.x)
+    const y = Number(point?.y)
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null
+    points.push({
+      x: clamp(x, 0, 1),
+      y: clamp(y, 0, 1),
+    })
+  }
+
+  return {
+    strokeId:
+      typeof payload.strokeId === 'string' &&
+      payload.strokeId.length <= 128
+        ? payload.strokeId
+        : null,
+    color: /^#[0-9a-f]{6}$/i.test(payload.color || '')
+      ? payload.color
+      : '#000000',
+    width: clamp(payload.width ?? payload.size, 1, 60),
+    tool: payload.tool === 'eraser' ? 'eraser' : 'pencil',
+    points,
+  }
+}
+
+function drawEvent(socket, event, payload = {}, acknowledge) {
+  const ack =
+    typeof acknowledge === 'function' ? acknowledge : null
   const room = getRoomForSocket(socket)
 
-  console.log('[DRAW EVENT RECEIVED]', {
-    event,
-    socketId: socket.id,
-    roomCode: socketRooms.get(socket.id) || null,
-    roomFound: Boolean(room),
-    phase: room?.status,
-    drawerId: room?.players[room.drawerIndex]?.id ?? null,
-  })
-
   if (!room || room.status !== 'playing') {
-    console.log('[DRAW REJECTED: ROOM/PHASE]', {
-      event,
-      socketId: socket.id,
-      roomFound: Boolean(room),
-      phase: room?.status,
-    })
+    ack?.({ ok: false })
     return
   }
 
+  if (
+    payload?.roomCode &&
+    String(payload.roomCode).trim().toUpperCase() !== room.code
+  ) {
+    ack?.({ ok: false })
+    return
+  }
 
   const drawer = room.players[room.drawerIndex]
 
   if (!drawer || drawer.id !== socket.id) {
-    console.log('[DRAW REJECTED: NOT DRAWER]', {
-      event,
-      socketId: socket.id,
-      expectedDrawerId: drawer?.id,
-      room: room.code,
-    })
+    ack?.({ ok: false })
     return
   }
 
   if (!['draw_start', 'draw_move', 'draw_end'].includes(event)) {
+    ack?.({ ok: false })
+    return
+  }
+
+  const x = Number(payload?.x)
+  const y = Number(payload?.y)
+  if (
+    event !== 'draw_end' &&
+    (!Number.isFinite(x) || !Number.isFinite(y))
+  ) {
+    ack?.({ ok: false })
     return
   }
 
   const safePayload = {
-    x: clamp(payload?.x, 0, 10000),
-    y: clamp(payload?.y, 0, 10000),
+    x: clamp(x, 0, 1),
+    y: clamp(y, 0, 1),
     color: /^#[0-9a-f]{6}$/i.test(payload?.color || '')
       ? payload.color
       : '#000000',
     size: clamp(payload?.size, 1, 60),
     tool: payload?.tool === 'eraser' ? 'eraser' : 'pencil',
+    strokeId:
+      typeof payload?.strokeId === 'string' &&
+      payload.strokeId.length <= 128
+        ? payload.strokeId
+        : null,
+    roomCode: room.code,
   }
 
   if (event === 'draw_start') {
+    if (
+      safePayload.strokeId &&
+      room.completedStrokeIds.has(safePayload.strokeId)
+    ) {
+      return
+    }
+
+    if (
+      safePayload.strokeId &&
+      room.activeStroke?.strokeId === safePayload.strokeId
+    ) {
+      return
+    }
+
+    if (room.activeStroke) {
+      const abandonedStroke = room.activeStroke
+      room.strokes.push(abandonedStroke)
+      if (abandonedStroke.strokeId) {
+        room.completedStrokeIds.add(abandonedStroke.strokeId)
+      }
+      socket.to(room.code).emit('draw_end', {
+        roomCode: room.code,
+        strokeId: abandonedStroke.strokeId,
+        stroke: abandonedStroke,
+      })
+    }
+
     room.activeStroke = {
+      strokeId: safePayload.strokeId,
       color: safePayload.color,
       size: safePayload.size,
       width: safePayload.size,
@@ -982,22 +1131,16 @@ function drawEvent(socket, event, payload = {}) {
       points: [{ x: safePayload.x, y: safePayload.y }],
     }
 
-    console.log('[DRAW START ACCEPTED]', {
-      socketId: socket.id,
-      room: room.code,
-    })
-
-    // Tell other players a new stroke has started.
     socket.to(room.code).emit('draw_start', safePayload)
     return
   }
 
   if (event === 'draw_move') {
-    if (!room.activeStroke) {
-      console.log('[DRAW MOVE IGNORED: NO ACTIVE STROKE]', {
-        room: room.code,
-        socketId: socket.id,
-      })
+    if (
+      !room.activeStroke ||
+      (safePayload.strokeId &&
+        room.activeStroke.strokeId !== safePayload.strokeId)
+    ) {
       return
     }
 
@@ -1011,50 +1154,101 @@ function drawEvent(socket, event, payload = {}) {
   }
 
   if (event === 'draw_end') {
-    if (!room.activeStroke) {
-      console.log('[DRAW END IGNORED: NO ACTIVE STROKE]', {
-        room: room.code,
-        socketId: socket.id,
-      })
+    if (
+      safePayload.strokeId &&
+      room.completedStrokeIds.has(safePayload.strokeId)
+    ) {
+      ack?.({ ok: true })
       return
     }
 
-    const completedStroke = room.activeStroke
+    if (
+      room.activeStroke &&
+      safePayload.strokeId &&
+      room.activeStroke.strokeId &&
+      room.activeStroke.strokeId !== safePayload.strokeId
+    ) {
+      ack?.({ ok: false })
+      return
+    }
+
+    const suppliedStroke = sanitizeStroke(payload?.stroke)
+    if (payload?.stroke !== undefined && !suppliedStroke) {
+      ack?.({ ok: false })
+      return
+    }
+
+    if (
+      suppliedStroke?.strokeId &&
+      safePayload.strokeId &&
+      suppliedStroke.strokeId !== safePayload.strokeId
+    ) {
+      ack?.({ ok: false })
+      return
+    }
+
+    const completedStroke =
+      (suppliedStroke && {
+        ...suppliedStroke,
+        strokeId: safePayload.strokeId || suppliedStroke.strokeId,
+      }) ||
+      (room.activeStroke
+        ? {
+            ...room.activeStroke,
+            strokeId: safePayload.strokeId || room.activeStroke.strokeId,
+          }
+        : null)
+
+    if (!completedStroke) {
+      ack?.({ ok: false })
+      return
+    }
+
+    if (completedStroke.strokeId) {
+      room.completedStrokeIds.add(completedStroke.strokeId)
+    }
     room.strokes.push(completedStroke)
     room.activeStroke = null
 
-    // Finish the active stroke on other players' canvases.
-    socket.to(room.code).emit('draw_end', safePayload)
-
-    // Keep a full-stroke event available for clients that use it.
-    socket.to(room.code).emit('draw_data', {
+    socket.to(room.code).emit('draw_end', {
+      roomCode: room.code,
+      strokeId: completedStroke.strokeId,
       stroke: completedStroke,
     })
+    ack?.({ ok: true })
   }
 }
 
 
 
-function clearCanvas(socket) {
+function clearCanvas(socket, payload = {}) {
   const room = getRoomForSocket(socket)
 
   if (!room || room.status !== 'playing') return
+  if (
+    payload?.roomCode &&
+    String(payload.roomCode).trim().toUpperCase() !== room.code
+  ) return
   if (room.players[room.drawerIndex]?.id !== socket.id) return
 
   room.strokes = []
   room.activeStroke = null
-  io.to(room.code).emit('canvas_clear', {})
+  io.to(room.code).emit('canvas_clear', { roomCode: room.code })
 }
 
-function undoDrawing(socket) {
+function undoDrawing(socket, payload = {}) {
   const room = getRoomForSocket(socket)
 
   if (!room || room.status !== 'playing') return
+  if (
+    payload?.roomCode &&
+    String(payload.roomCode).trim().toUpperCase() !== room.code
+  ) return
   if (room.players[room.drawerIndex]?.id !== socket.id) return
 
   room.strokes.pop()
   room.activeStroke = null
-  io.to(room.code).emit('draw_undo', {})
+  socket.to(room.code).emit('draw_undo', { roomCode: room.code })
 }
 
 function restoreSession(socket, payload = {}) {
@@ -1062,7 +1256,12 @@ function restoreSession(socket, payload = {}) {
   const code = String(payload.roomCode || '').trim().toUpperCase()
 
   if (!token || !code) {
-    return fail(socket, 'Your saved game session is invalid.')
+    socket.emit('session_restore_failed', {
+      roomCode: code || undefined,
+      definitive: true,
+      message: 'Your saved game session is invalid.',
+    })
+    return
   }
 
   const room = rooms.get(code)
@@ -1079,6 +1278,8 @@ function restoreSession(socket, payload = {}) {
 
   if (!room || !player) {
     socket.emit('session_restore_failed', {
+      roomCode: code,
+      definitive: true,
       message: 'This game session has expired. Please join the room again.',
     })
     return
@@ -1154,10 +1355,7 @@ function leaveRoom(socket) {
   }
 
   if (room.players.length === 0) {
-    clearTurnTimer(room)
-    clearTransitionTimer(room)
-    rooms.delete(room.code)
-    emitPublicRooms()
+    deleteRoom(room)
     return
   }
 
@@ -1305,11 +1503,13 @@ socket.on('quick_play', (payload = {}) => {
   socket.on('chat', (payload) => submitChat(socket, payload))
 
   for (const event of ['draw_start', 'draw_move', 'draw_end']) {
-    socket.on(event, (payload) => drawEvent(socket, event, payload))
+    socket.on(event, (payload, acknowledge) =>
+      drawEvent(socket, event, payload, acknowledge),
+    )
   }
 
-  socket.on('canvas_clear', () => clearCanvas(socket))
-  socket.on('draw_undo', () => undoDrawing(socket))
+  socket.on('canvas_clear', (payload) => clearCanvas(socket, payload))
+  socket.on('draw_undo', (payload) => undoDrawing(socket, payload))
   socket.on('leave_room', () => leaveRoom(socket))
 
   socket.on('restore_session', (payload) => {
@@ -1331,6 +1531,7 @@ socket.on('quick_play', (payload = {}) => {
 
     if (room.status === 'playing' || room.status === 'roundEnded') {
       socket.emit('draw_history', {
+        roomCode: room.code,
         strokes: room.activeStroke
           ? [...room.strokes, room.activeStroke]
           : room.strokes,
@@ -1342,6 +1543,7 @@ socket.on('quick_play', (payload = {}) => {
         (a, b) => b.points - a.points,
       )
       socket.emit('game_over', {
+        roomCode: room.code,
         winner: leaderboard[0] ? publicPlayer(leaderboard[0]) : null,
         leaderboard: leaderboard.map(publicPlayer),
       })
@@ -1372,18 +1574,31 @@ socket.on('quick_play', (payload = {}) => {
 
     if (!room || !player) return
 
+    const sessionToken = player.sessionToken
+    const disconnectedSocketId = socket.id
+
     if (player.reconnectTimer) {
       clearTimeout(player.reconnectTimer)
     }
 
     player.reconnectTimer = setTimeout(() => {
+      if (
+        rooms.get(room.code) !== room ||
+        !room.players.includes(player) ||
+        player.sessionToken !== sessionToken ||
+        player.id !== disconnectedSocketId ||
+        socketRooms.get(disconnectedSocketId) !== room.code
+      ) {
+        return
+      }
+
       player.reconnectTimer = null
 
       // Remove the player only if they have not reconnected.
-      if (player.id === socket.id && socketRooms.has(socket.id)) {
+      if (player.id === disconnectedSocketId) {
         leaveRoom(socket)
       }
-    }, 120000)
+    }, RECONNECT_GRACE_PERIOD_MS)
   })
 })
 

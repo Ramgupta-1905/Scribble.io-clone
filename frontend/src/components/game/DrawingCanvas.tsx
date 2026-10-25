@@ -9,10 +9,11 @@ type DrawingCanvasProps = {
   drawingTool: 'pencil' | 'eraser'
   drawingColor: string
   brushSize: number
+  roomCode: string
   canDraw?: boolean
   activeStrokeRef: React.MutableRefObject<DrawingStroke | null>
   isDrawingRef: React.MutableRefObject<boolean>
-  onStrokeFinished: (stroke: DrawingStroke) => void
+  onStrokeFinished: (stroke: DrawingStroke, strokeId: string) => void
 }
 
 function drawStroke(
@@ -111,20 +112,42 @@ export default function DrawingCanvas({
   drawingTool,
   drawingColor,
   brushSize,
+  roomCode,
   canDraw = true,
   activeStrokeRef,
   isDrawingRef,
   onStrokeFinished,
 }: DrawingCanvasProps) {
   const activePointerIdRef = useRef<number | null>(null)
+  const activeStrokeIdRef = useRef<string | null>(null)
 
   useEffect(() => {
-    if (!canDraw) {
-      activeStrokeRef.current = null
-      isDrawingRef.current = false
-      activePointerIdRef.current = null
+    if (canDraw || !activeStrokeRef.current) return
+
+    const stroke = activeStrokeRef.current
+    const strokeId = activeStrokeIdRef.current
+    const canvas = canvasRef.current
+    const pointerId = activePointerIdRef.current
+
+    activeStrokeRef.current = null
+    isDrawingRef.current = false
+    activePointerIdRef.current = null
+    activeStrokeIdRef.current = null
+
+    if (canvas && pointerId !== null && canvas.hasPointerCapture(pointerId)) {
+      canvas.releasePointerCapture(pointerId)
     }
-  }, [canDraw, activeStrokeRef, isDrawingRef])
+
+    if (stroke && strokeId) {
+      onStrokeFinished(stroke, strokeId)
+    }
+  }, [
+    canDraw,
+    canvasRef,
+    activeStrokeRef,
+    isDrawingRef,
+    onStrokeFinished,
+  ])
 
   const getPoint = (
     clientX: number,
@@ -154,7 +177,7 @@ export default function DrawingCanvas({
       return
     }
 
-    if (event.button !== 0) {
+    if (event.pointerType !== 'touch' && event.button !== 0) {
       console.warn('[DRAW BLOCKED] Non-primary pointer button:', {
         pointerType: event.pointerType,
         button: event.button,
@@ -181,6 +204,7 @@ export default function DrawingCanvas({
     }
 
     activePointerIdRef.current = event.pointerId
+    activeStrokeIdRef.current = window.crypto.randomUUID()
     const rect = canvas.getBoundingClientRect()
     const point = getPoint(event.clientX, event.clientY, canvas)
 
@@ -199,6 +223,8 @@ export default function DrawingCanvas({
     drawStroke(context, stroke, rect.width, rect.height)
 
     socket.emit('draw_start', {
+      strokeId: activeStrokeIdRef.current,
+      roomCode,
       x: point.x,
       y: point.y,
       color: stroke.color,
@@ -214,7 +240,6 @@ export default function DrawingCanvas({
 
     if (
       !canDraw ||
-      !socket.connected ||
       !isDrawingRef.current ||
       !stroke ||
       activePointerIdRef.current !== event.pointerId
@@ -234,6 +259,8 @@ export default function DrawingCanvas({
       : [event.nativeEvent]
 
     for (const pointerEvent of pointerEvents) {
+      if (stroke.points.length >= 10000) break
+
       const current = getPoint(
         pointerEvent.clientX,
         pointerEvent.clientY,
@@ -259,13 +286,17 @@ export default function DrawingCanvas({
         context.restore()
       }
 
-      socket.emit('draw_move', {
-        x: current.x,
-        y: current.y,
-        color: stroke.color,
-        size: stroke.width,
-        tool: stroke.tool,
-      })
+      if (socket.connected) {
+        socket.emit('draw_move', {
+          strokeId: activeStrokeIdRef.current,
+          roomCode,
+          x: current.x,
+          y: current.y,
+          color: stroke.color,
+          size: stroke.width,
+          tool: stroke.tool,
+        })
+      }
     }
   }
 
@@ -274,32 +305,27 @@ export default function DrawingCanvas({
   ) => {
     const canvas = event.currentTarget
     const stroke = activeStrokeRef.current
+    const strokeId = activeStrokeIdRef.current
 
     if (
       !isDrawingRef.current ||
       !stroke ||
+      !strokeId ||
       activePointerIdRef.current !== event.pointerId
     ) {
       return
     }
 
+    activeStrokeRef.current = null
+    isDrawingRef.current = false
+    activePointerIdRef.current = null
+    activeStrokeIdRef.current = null
+
     if (canvas.hasPointerCapture(event.pointerId)) {
       canvas.releasePointerCapture(event.pointerId)
     }
 
-    activeStrokeRef.current = null
-    isDrawingRef.current = false
-    activePointerIdRef.current = null
-
-    if (canDraw && socket.connected) {
-      socket.emit('draw_end', {
-        color: stroke.color,
-        size: stroke.width,
-        tool: stroke.tool,
-      })
-
-      onStrokeFinished(stroke)
-    }
+    onStrokeFinished(stroke, strokeId)
   }
 
   const handlePointerLeave = (

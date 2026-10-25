@@ -56,6 +56,9 @@ type GameStatePayload = {
 }
 
 type DrawingPayload = {
+  roomCode?: string
+  strokeId?: string
+  stroke?: ServerStroke
   x?: number
   y?: number
   color?: string
@@ -71,6 +74,7 @@ type ServerMessage = {
   timestamp?: number
 }
 type ServerStroke = {
+  strokeId?: string | null
   color?: string
   size?: number
   width?: number
@@ -80,6 +84,7 @@ type ServerStroke = {
 
 function normalizeStroke(stroke: ServerStroke): DrawingStroke {
   return {
+    strokeId: stroke.strokeId ?? undefined,
     color: stroke.color ?? '#000000',
     width: stroke.width ?? stroke.size ?? 4,
     tool: stroke.tool === 'eraser' ? 'eraser' : 'pencil',
@@ -177,6 +182,9 @@ export default function GamePage({
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const activeStrokeRef = useRef<DrawingStroke | null>(null)
   const isDrawingRef = useRef(false)
+  const pendingDrawingRef = useRef<
+    Array<{ strokeId: string; stroke: DrawingStroke }>
+  >([])
 
   const currentPlayer = gamePlayers.find(
     (player) => player.id === socket.id,
@@ -190,6 +198,42 @@ export default function GamePage({
     Boolean(socket.id && drawerId && socket.id === drawerId)
   const isCurrentPlayerDrawingRef = useRef(isCurrentPlayerDrawing)
   const roomCode = room?.code
+
+  const flushPendingDrawings = useCallback(() => {
+    if (!roomCode || !socket.connected) return
+
+    for (const pending of pendingDrawingRef.current) {
+      socket.emit(
+        'draw_end',
+        {
+          roomCode,
+          strokeId: pending.strokeId,
+          stroke: { ...pending.stroke, strokeId: pending.strokeId },
+        },
+        (result: { ok?: boolean }) => {
+          if (!result?.ok) return
+          pendingDrawingRef.current = pendingDrawingRef.current.filter(
+            (item) => item.strokeId !== pending.strokeId,
+          )
+        },
+      )
+    }
+  }, [roomCode])
+
+  const finishLocalStroke = useCallback(
+    (stroke: DrawingStroke, strokeId: string) => {
+      const completedStroke = { ...stroke, strokeId }
+      setStrokes((current) => [...current, completedStroke])
+      if (!pendingDrawingRef.current.some((item) => item.strokeId === strokeId)) {
+        pendingDrawingRef.current.push({
+          strokeId,
+          stroke: completedStroke,
+        })
+      }
+      flushPendingDrawings()
+    },
+    [flushPendingDrawings],
+  )
 
   const drawDuration = Math.max(
     5,
@@ -238,9 +282,15 @@ const redrawCanvas = useCallback(() => {
     }
 
     const handleSessionRestored = (payload: {
-      room?: { code?: string }
+      room?: { code?: string; status?: string; drawerId?: string }
     }) => {
       if (payload.room?.code === roomCode) {
+        if (
+          payload.room.status === 'playing' &&
+          payload.room.drawerId === socket.id
+        ) {
+          flushPendingDrawings()
+        }
         requestGameSync()
       }
     }
@@ -330,10 +380,13 @@ const redrawCanvas = useCallback(() => {
     }
 
     const handleRoundStart = (payload: {
+      roomCode?: string
       round: number
       drawerId: string
       drawTime: number
     }) => {
+      if (payload.roomCode && payload.roomCode !== roomCode) return
+      pendingDrawingRef.current = []
       setRoundNumber(payload.round)
       setDrawerId(payload.drawerId)
       setTimeLeft(payload.drawTime)
@@ -348,6 +401,7 @@ const redrawCanvas = useCallback(() => {
       setWordChoices([])
       setRevealedLetters(0)
       setGuess('')
+      pendingDrawingRef.current = []
       activeStrokeRef.current = null
       isDrawingRef.current = false
       setStrokes([])
@@ -404,35 +458,61 @@ const redrawCanvas = useCallback(() => {
     }) => {
       if (payload.roomCode && payload.roomCode !== roomCode) return
 
+      const uniqueMessages = new Map<string, ServerMessage>()
+      for (const message of payload.messages ?? []) {
+        if (message.roomCode && message.roomCode !== roomCode) continue
+        uniqueMessages.set(
+          message.id ?? `${message.timestamp ?? ''}-${message.text}`,
+          message,
+        )
+      }
+
       setMessages(
-        payload.messages?.map((message) => ({
-          id: message.id,
-          text: message.text,
-          type: message.type,
-          timestamp: message.timestamp,
-        })) ?? initialMessages,
+        uniqueMessages.size
+          ? [...uniqueMessages.values()].map((message) => ({
+              id: message.id,
+              text: message.text,
+              type: message.type,
+              timestamp: message.timestamp,
+            }))
+          : initialMessages,
       )
     }
 
     const handleGuessResult = (payload: {
+      id?: string
+      roomCode?: string
       correct: boolean
       playerId: string
       points?: number
       score?: number
     }) => {
+      if (payload.roomCode && payload.roomCode !== roomCode) return
       if (payload.correct && payload.playerId === socket.id) {
         setHasGuessedCorrectly(true)
         setGuess('')
         setScore((current) => payload.score ?? current + (payload.points ?? 0))
+      } else if (!payload.correct && payload.playerId === socket.id) {
+        setMessages((current) => [
+          ...current,
+          {
+            id: payload.id,
+            text: 'Not quite. Try another guess.',
+            type: 'warning',
+          },
+        ])
       }
     }
 
     const handleRoundEnd = (payload: {
+      roomCode?: string
       word?: string | null
       scores?: Player[]
       hasGuessedCorrectly?: boolean
     }) => {
+      if (payload.roomCode && payload.roomCode !== roomCode) return
       const word = typeof payload.word === 'string' ? payload.word : ''
+      const unfinishedStroke = activeStrokeRef.current
 
       setHasRoundEnded(true)
       setIsChoosingWord(false)
@@ -442,8 +522,12 @@ const redrawCanvas = useCallback(() => {
       setTimeLeft(0)
       setServerDeadline(null)
 
+      pendingDrawingRef.current = []
       activeStrokeRef.current = null
       isDrawingRef.current = false
+      if (unfinishedStroke) {
+        setStrokes((current) => [...current, unfinishedStroke])
+      }
 
       if (payload.scores) {
         setGamePlayers(
@@ -460,9 +544,12 @@ const redrawCanvas = useCallback(() => {
     }
 
     const handleGameOver = (payload: {
+      roomCode?: string
       winner: Player | null
       leaderboard?: Player[]
     }) => {
+      if (payload.roomCode && payload.roomCode !== roomCode) return
+      pendingDrawingRef.current = []
       setGameFinished(true)
       setHasStarted(false)
       setIsChoosingWord(false)
@@ -491,6 +578,8 @@ const redrawCanvas = useCallback(() => {
     }
 
     const handleDrawingStart = (payload: DrawingPayload) => {
+      if (payload.roomCode && payload.roomCode !== roomCode) return
+
       const point = toStrokePoint(payload)
 
       activeStrokeRef.current = {
@@ -505,50 +594,71 @@ const redrawCanvas = useCallback(() => {
       setStrokes((current) => [...current])
     }
 
-    
-const handleDrawingMove = (payload: DrawingPayload) => {
-  const stroke = activeStrokeRef.current
-  if (!stroke) return
+    const handleDrawingMove = (payload: DrawingPayload) => {
+      if (payload.roomCode && payload.roomCode !== roomCode) return
 
-  stroke.points.push(toStrokePoint(payload))
-
-  // Redraw only for strokes received from other players.
-  // The current drawer renders its own pointer movement directly.
-  if (!isCurrentPlayerDrawingRef.current) {
-    redrawCanvasRef.current()
-  }
-}
-
-
-    const handleDrawingEnd = () => {
       const stroke = activeStrokeRef.current
+      if (!stroke) return
+
+      stroke.points.push(toStrokePoint(payload))
+      if (!isCurrentPlayerDrawingRef.current) {
+        redrawCanvasRef.current()
+      }
+    }
+
+
+    const handleDrawingEnd = (payload: DrawingPayload) => {
+      if (payload.roomCode && payload.roomCode !== roomCode) return
+
+      const stroke = payload.stroke
+        ? {
+            ...normalizeStroke(payload.stroke),
+            strokeId: payload.strokeId ?? payload.stroke.strokeId ?? undefined,
+          }
+        : activeStrokeRef.current
       if (!stroke) return
 
       activeStrokeRef.current = null
       isDrawingRef.current = false
-      setStrokes((current) => [...current, stroke])
+      setStrokes((current) => {
+        if (
+          payload.strokeId &&
+          current.some((item) => item.strokeId === payload.strokeId)
+        ) {
+          return current.map((item) =>
+            item.strokeId === payload.strokeId ? stroke : item,
+          )
+        }
+        return [...current, stroke]
+      })
     }
 
-    const handleCanvasClear = () => {
+    const handleCanvasClear = (payload: { roomCode?: string }) => {
+      if (payload.roomCode && payload.roomCode !== roomCode) return
+      pendingDrawingRef.current = []
       activeStrokeRef.current = null
       isDrawingRef.current = false
       setStrokes([])
       setCanvasBackground('#ffffff')
     }
 
-    const handleDrawUndo = () => {
+    const handleDrawUndo = (payload: { roomCode?: string }) => {
+      if (payload.roomCode && payload.roomCode !== roomCode) return
       setStrokes((current) => current.slice(0, -1))
     }
 
     const handleError = (payload: { message?: string }) => {
       setStartError(payload.message || 'The server rejected that action.')
     }
-    const handleDrawHistory = (payload: { strokes: ServerStroke[] }) => {
-  activeStrokeRef.current = null
-  isDrawingRef.current = false
-
-  setStrokes((payload.strokes ?? []).map(normalizeStroke))
-}
+    const handleDrawHistory = (payload: {
+      roomCode?: string
+      strokes: ServerStroke[]
+    }) => {
+      if (payload.roomCode && payload.roomCode !== roomCode) return
+      activeStrokeRef.current = null
+      isDrawingRef.current = false
+      setStrokes((payload.strokes ?? []).map(normalizeStroke))
+    }
     socket.on('room_state', handleRoomState)
     socket.on('session_restored', handleSessionRestored)
     socket.on('game_state', handleGameState)
@@ -591,7 +701,7 @@ const handleDrawingMove = (payload: DrawingPayload) => {
       socket.off('game_error', handleError)
       socket.off('draw_history', handleDrawHistory)
     }
-  }, [roomCode])
+  }, [flushPendingDrawings, roomCode])
 
   useEffect(() => {
     isCurrentPlayerDrawingRef.current = isCurrentPlayerDrawing
@@ -764,7 +874,9 @@ useEffect(() => {
       return
     }
 
-    socket.emit('guess', { text })
+    if (!socket.connected || !roomCode) return
+
+    socket.emit('guess', { text, roomCode })
     setGuess('')
   }
 
@@ -774,7 +886,9 @@ useEffect(() => {
     const text = guess.trim()
     if (!text) return
 
-    socket.emit('chat', { text })
+    if (!socket.connected || !roomCode) return
+
+    socket.emit('chat', { text, roomCode })
     setGuess('')
   }
 
@@ -802,7 +916,7 @@ useEffect(() => {
 
     activeStrokeRef.current = null
     isDrawingRef.current = false
-    socket.emit('draw_undo')
+    socket.emit('draw_undo', { roomCode })
     setStrokes((current) => current.slice(0, -1))
   }
 
@@ -811,7 +925,7 @@ useEffect(() => {
 
     activeStrokeRef.current = null
     isDrawingRef.current = false
-    socket.emit('canvas_clear')
+    socket.emit('canvas_clear', { roomCode })
     setStrokes([])
     setCanvasBackground('#ffffff')
   }
@@ -952,6 +1066,7 @@ useEffect(() => {
                     drawingTool={drawingTool}
                     drawingColor={drawingColor}
                     brushSize={brushSize}
+                    roomCode={roomCode ?? ''}
                     canDraw={
                       hasStarted &&
                       isCurrentPlayerDrawing &&
@@ -960,9 +1075,7 @@ useEffect(() => {
                     }
                     activeStrokeRef={activeStrokeRef}
                     isDrawingRef={isDrawingRef}
-                    onStrokeFinished={(stroke) => {
-                      setStrokes((current) => [...current, stroke])
-                    }}
+                    onStrokeFinished={finishLocalStroke}
                   />
 
                   {hasStarted &&

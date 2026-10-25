@@ -17,6 +17,7 @@ export type DrawingPoint = {
 }
 
 export type DrawingStroke = {
+  strokeId?: string
   color: string
   width: number
   tool: 'pencil' | 'eraser'
