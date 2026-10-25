@@ -207,7 +207,7 @@ function getPublicRoomSummaries() {
       (room) =>
         room.isPrivate === false &&
         room.status !== 'finished' &&
-        room.players.length < 20,
+        room.players.length < Math.min(20, room.settings.maxPlayers),
     )
     .map(publicRoomSummary)
 }
@@ -222,12 +222,16 @@ function emitRoom(room) {
 }
 
 function sendChat(room, text, type = 'notice') {
-  io.to(room.code).emit('chat_message', {
+  const message = {
     id: crypto.randomUUID(),
+    roomCode: room.code,
     text,
     type,
     timestamp: Date.now(),
-  })
+  }
+  room.messages.push(message)
+  if (room.messages.length > 100) room.messages.shift()
+  io.to(room.code).emit('chat_message', message)
 }
 
 function getRoomForSocket(socket) {
@@ -299,25 +303,36 @@ function chooseWords(room) {
   )
 }
 
-function sendGameState(room) {
+function sendGameState(room, excludedSocketId = null) {
   const drawer = room.players[room.drawerIndex]
 
   for (const player of room.players) {
+    if (player.id === excludedSocketId) continue
+
     const isDrawer = player.id === drawer?.id
     const alreadyGuessed = room.correctGuessers.has(player.id)
+    const pendingScore = room.pendingScores.get(player.id) || 0
 
     io.to(player.id).emit('game_state', {
       ...publicRoom(room),
       phase: room.status,
       round: room.round,
       drawerId: drawer?.id ?? null,
-      word: isDrawer || alreadyGuessed ? room.word : null,
+      word:
+        room.status === 'roundEnded' ||
+        room.status === 'finished' ||
+        isDrawer ||
+        alreadyGuessed
+          ? room.word
+          : null,
       wordLength: room.word?.replace(/\s/g, '').length ?? 0,
       timeLeft: room.deadline
         ? Math.max(0, Math.ceil((room.deadline - Date.now()) / 1000))
         : 0,
       deadline: room.deadline,
+      serverNow: Date.now(),
       hasGuessedCorrectly: alreadyGuessed,
+      score: player.points + pendingScore,
     })
   }
 }
@@ -341,7 +356,7 @@ function finishGame(room) {
   emitPublicRooms()
 }
 
-function endTurn(room) {
+function endTurn(room, finishedRoundOverride) {
   if (room.status !== 'playing') return
 
   clearTurnTimer(room)
@@ -355,14 +370,17 @@ function endTurn(room) {
 
   room.status = 'roundEnded'
 
-  io.to(room.code).emit('round_end', {
-    word: room.word,
-    scores: room.players.map(publicPlayer),
-    nextDrawer: null,
-  })
+  for (const player of room.players) {
+    io.to(player.id).emit('round_end', {
+      word: room.word,
+      scores: room.players.map(publicPlayer),
+      hasGuessedCorrectly: room.correctGuessers.has(player.id),
+    })
+  }
 
   sendChat(room, `Turn complete! The word was "${room.word}".`, 'system')
   emitRoom(room)
+  emitPublicRooms()
 
   clearTransitionTimer(room)
 
@@ -372,7 +390,9 @@ function endTurn(room) {
     if (!rooms.has(room.code) || room.players.length === 0) return
     if (room.status !== 'roundEnded') return
 
-    const finishedRound = room.drawerIndex >= room.players.length - 1
+    const finishedRound =
+      finishedRoundOverride ??
+      (room.drawerIndex >= room.players.length - 1)
 
     if (finishedRound) {
       if (room.round >= room.settings.rounds) {
@@ -439,6 +459,7 @@ function beginTurn(room) {
   sendChat(room, `${drawer.name} is choosing a word.`, 'notice')
   sendGameState(room)
   emitRoom(room)
+  emitPublicRooms()
 }
 
 function startTimer(room) {
@@ -512,6 +533,7 @@ function createRoom(socket, payload = {}) {
     wordOptions: [],
     correctGuessers: new Set(),
     pendingScores: new Map(),
+    messages: [],
     strokes: [],
     activeStroke: null,
     hintCount: 0,
@@ -523,6 +545,7 @@ function createRoom(socket, payload = {}) {
   rooms.set(code, room)
   socket.join(code)
   socketRooms.set(socket.id, code)
+  sendChat(room, 'Welcome to the room!', 'system')
 
   socket.emit('room_created', {
     code,
@@ -622,7 +645,7 @@ function joinRoom(socket, payload = {}) {
 
   // Public rooms have a hard limit of 20 players.
   const playerLimit = isPublic
-    ? 20
+    ? Math.min(20, room.settings.maxPlayers)
     : room.settings.maxPlayers
 
   if (room.players.length >= playerLimit) {
@@ -716,6 +739,7 @@ function startPublicGame(room) {
   // beginTurn() sets the status, generates word choices,
   // emits round_start and word_choices, and sends game state.
   beginTurn(room)
+  emitPublicRooms()
 }
 
 
@@ -729,13 +753,10 @@ function startGame(socket, payload = {}) {
     return fail(socket, 'Only the host can start.')
   }
 
-  if (
-  room.status === 'finished' ||
-  (room.status !== 'lobby' && room.isPrivate !== false)
-) {
-  fail(socket, 'This game has already started.')
-  return
-}
+  if (room.status !== 'lobby') {
+    fail(socket, 'This game has already started.')
+    return
+  }
 
   if (room.players.length < 2) {
     return fail(socket, 'At least two players are required.')
@@ -821,6 +842,7 @@ function chooseWord(socket, payload = {}) {
 
   io.to(room.code).emit('canvas_clear', {})
   sendChat(room, `${drawer.name} is drawing.`, 'notice')
+  emitPublicRooms()
 
   // Send the answer privately to the drawer.
   io.to(drawer.id).emit('word_chosen', { word })
@@ -831,8 +853,73 @@ function chooseWord(socket, payload = {}) {
     word: null,
   })
 
-  sendGameState(room)
   startTimer(room)
+}
+
+function submitGuess(socket, payload = {}) {
+  const room = getRoomForSocket(socket)
+  const player = getPlayer(room, socket)
+
+  if (!room || !player) {
+    return fail(socket, 'Join a room before guessing.')
+  }
+
+  if (room.status !== 'playing') return
+
+  const drawer = room.players[room.drawerIndex]
+  if (drawer?.id === player.id || room.correctGuessers.has(player.id)) return
+
+  const text =
+    typeof payload?.text === 'string' ? payload.text.trim().slice(0, 100) : ''
+  if (!text) return
+
+  const normalizeAnswer = (value) =>
+    value.toLowerCase().replace(/\s+/g, '')
+  const correct =
+    normalizeAnswer(text) === normalizeAnswer(String(room.word || ''))
+
+  if (!correct) {
+    sendChat(room, `${player.name}: ${text}`, 'chat')
+    return
+  }
+
+  room.correctGuessers.add(player.id)
+  const remaining = room.deadline
+    ? Math.max(0, room.deadline - Date.now())
+    : 0
+  const points = Math.max(
+    10,
+    Math.ceil((100 * remaining) / (room.settings.drawTime * 1000)),
+  )
+  room.pendingScores.set(player.id, points)
+
+  io.to(room.code).emit('guess_result', {
+    correct: true,
+    playerId: player.id,
+    points,
+    score: player.points + points,
+  })
+  sendChat(room, `${player.name} guessed the word!`, 'success')
+  sendGameState(room)
+
+  if (room.correctGuessers.size >= room.players.length - 1) {
+    endTurn(room)
+  }
+}
+
+function submitChat(socket, payload = {}) {
+  const room = getRoomForSocket(socket)
+  const player = getPlayer(room, socket)
+
+  if (!room || !player) {
+    return fail(socket, 'Join a room before sending chat messages.')
+  }
+
+  const text =
+    typeof payload?.text === 'string' ? payload.text.trim().slice(0, 250) : ''
+  if (!text) return
+
+  sendChat(room, `${player.name}: ${text}`, 'chat')
 }
 
 
@@ -980,8 +1067,17 @@ function restoreSession(socket, payload = {}) {
 
   const room = rooms.get(code)
   const player = room?.players.find((item) => item.sessionToken === token)
+  const currentRoom = getRoomForSocket(socket)
+  const currentPlayer = getPlayer(currentRoom, socket)
 
-  if (!room || !player || room.status === 'finished') {
+  if (
+    currentRoom &&
+    (currentRoom !== room || currentPlayer?.sessionToken !== token)
+  ) {
+    return fail(socket, 'Leave your current room before restoring another session.')
+  }
+
+  if (!room || !player) {
     socket.emit('session_restore_failed', {
       message: 'This game session has expired. Please join the room again.',
     })
@@ -997,6 +1093,11 @@ function restoreSession(socket, payload = {}) {
 
   if (oldId !== socket.id) {
     socketRooms.delete(oldId)
+    const previousSocket = io.sockets.sockets.get(oldId)
+    if (previousSocket) {
+      previousSocket.leave(room.code)
+      previousSocket.disconnect(true)
+    }
     player.id = socket.id
 
     if (room.hostId === oldId) {
@@ -1022,6 +1123,9 @@ function restoreSession(socket, payload = {}) {
     sessionToken: player.sessionToken,
     room: publicRoom(room),
   })
+
+  emitRoom(room)
+  sendGameState(room, socket.id)
 }
 
 function leaveRoom(socket) {
@@ -1045,6 +1149,7 @@ function leaveRoom(socket) {
   if (leavingPlayer) {
     room.players = room.players.filter((player) => player.id !== socket.id)
     room.correctGuessers.delete(socket.id)
+    room.pendingScores.delete(socket.id)
     sendChat(room, `${leavingPlayer.name} left the room.`, 'system')
   }
 
@@ -1081,35 +1186,20 @@ function leaveRoom(socket) {
       room.word = null
       room.wordOptions = []
       room.correctGuessers.clear()
+      room.pendingScores.clear()
       room.strokes = []
       room.activeStroke = null
       room.drawerIndex = 0
 
       sendChat(room, 'Waiting for another player to join.', 'system')
+      sendGameState(room)
       emitPublicRooms()
-    } else if (wasDrawer && room.status !== 'roundEnded') {
-      clearTurnTimer(room)
-      clearTransitionTimer(room)
-
-      room.status = 'roundEnded'
-
-      io.to(room.code).emit('round_end', {
-        word: room.word,
-        scores: room.players.map(publicPlayer),
-        nextDrawer: null,
-      })
-
-      room.transitionTimer = setTimeout(() => {
-        room.transitionTimer = null
-
-        if (
-          rooms.has(room.code) &&
-          room.players.length >= 2 &&
-          room.status === 'roundEnded'
-        ) {
-          beginTurn(room)
-        }
-      }, 1500)
+    } else if (wasDrawer && room.status === 'choosing') {
+      beginTurn(room)
+    } else if (wasDrawer && room.status === 'playing') {
+      room.drawerIndex =
+        (leavingIndex - 1 + room.players.length) % room.players.length
+      endTurn(room, leavingIndex >= room.players.length)
     } else if (room.status === 'playing' &&
       room.correctGuessers.size >= room.players.length - 1) {
       endTurn(room)
@@ -1171,7 +1261,7 @@ socket.on('quick_play', (payload = {}) => {
       (room) =>
         room.isPrivate === false &&
         room.status !== 'finished' &&
-        room.players.length < 20 &&
+        room.players.length < Math.min(20, room.settings.maxPlayers) &&
         !room.players.some(
           (player) =>
             player.name.toLowerCase() === playerName.toLowerCase(),
@@ -1233,11 +1323,27 @@ socket.on('quick_play', (payload = {}) => {
     if (!room || !player) return
 
     socket.emit('room_state', publicRoom(room))
+    socket.emit('chat_history', {
+      roomCode: room.code,
+      messages: room.messages,
+    })
     sendGameState(room)
 
-    if (room.status === 'playing') {
+    if (room.status === 'playing' || room.status === 'roundEnded') {
       socket.emit('draw_history', {
-        strokes: room.strokes,
+        strokes: room.activeStroke
+          ? [...room.strokes, room.activeStroke]
+          : room.strokes,
+      })
+    }
+
+    if (room.status === 'finished') {
+      const leaderboard = [...room.players].sort(
+        (a, b) => b.points - a.points,
+      )
+      socket.emit('game_over', {
+        winner: leaderboard[0] ? publicPlayer(leaderboard[0]) : null,
+        leaderboard: leaderboard.map(publicPlayer),
       })
     }
 

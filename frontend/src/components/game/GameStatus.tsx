@@ -12,7 +12,9 @@ type GameStatusProps = {
   drawerName?: string
   isChoosingWord?: boolean
   hasRoundEnded?: boolean
+  hasGuessedCorrectly?: boolean
   gameFinished?: boolean
+  onLeaveRoom: () => void
 }
 
 export default function GameStatus({
@@ -28,7 +30,9 @@ export default function GameStatus({
   drawerName,
   isChoosingWord = false,
   hasRoundEnded = false,
+  hasGuessedCorrectly = false,
   gameFinished = false,
+  onLeaveRoom,
 }: GameStatusProps) {
   const displayedTime =
     timeLeft !== undefined
@@ -77,12 +81,18 @@ export default function GameStatus({
       </strong>
 
       <div className="word-hint" aria-live="polite">
-        <span>{statusText}</span>
+        <span>
+          {hasRoundEnded && hasGuessedCorrectly
+            ? 'WORD REVEALED'
+            : statusText}
+        </span>
 
         {hasStarted && !gameFinished && (
           <strong>
             {hasRoundEnded
-              ? 'WORD REVEALED'
+              ? hasGuessedCorrectly
+                ? wordHint || ''
+                : wordHint || 'ROUND COMPLETE'
               : isChoosingWord
                 ? 'Choose your word'
                 : wordHint || '_ _ _ _ _'}
@@ -98,6 +108,13 @@ export default function GameStatus({
         onClick={onToggleSettings}
       >
         ⚙
+      </button>
+      <button
+        className="game-leave-button"
+        type="button"
+        onClick={onLeaveRoom}
+      >
+        Leave
       </button>
     </section>
   )

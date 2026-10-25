@@ -36,6 +36,7 @@ type GamePageProps = {
   isPrivateRoom: boolean
   onToggleSettings: () => void
   onCloseSettings: () => void
+  onReturnToLobby: () => void
 }
 
 type GameStatePayload = {
@@ -49,7 +50,9 @@ type GameStatePayload = {
   wordLength?: number
   timeLeft?: number
   deadline?: number | null
+  serverNow?: number
   hasGuessedCorrectly?: boolean
+  score?: number
 }
 
 type DrawingPayload = {
@@ -62,6 +65,7 @@ type DrawingPayload = {
 
 type ServerMessage = {
   id?: string
+  roomCode?: string
   text: string
   type: string
   timestamp?: number
@@ -130,6 +134,7 @@ export default function GamePage({
   isPrivateRoom,
   onToggleSettings,
   onCloseSettings,
+  onReturnToLobby,
 }: GamePageProps) {
   const [guess, setGuess] = useState('')
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages)
@@ -148,6 +153,7 @@ export default function GamePage({
 
   const [timeLeft, setTimeLeft] = useState(0)
   const [serverDeadline, setServerDeadline] = useState<number | null>(null)
+  const serverClockOffsetRef = useRef(0)
   const [drawingTool, setDrawingTool] =
     useState<'pencil' | 'eraser'>('pencil')
   const [drawingColor, setDrawingColor] = useState('#000000')
@@ -289,6 +295,10 @@ const redrawCanvas = useCallback(() => {
         setServerDeadline(payload.deadline)
       }
 
+      if (payload.serverNow !== undefined) {
+        serverClockOffsetRef.current = payload.serverNow - Date.now()
+      }
+
       if (payload.timeLeft !== undefined) {
         setTimeLeft(payload.timeLeft)
       }
@@ -303,6 +313,10 @@ const redrawCanvas = useCallback(() => {
 
       if (payload.hasGuessedCorrectly !== undefined) {
         setHasGuessedCorrectly(payload.hasGuessedCorrectly)
+      }
+
+      if (payload.score !== undefined) {
+        setScore(payload.score)
       }
 
       if (payload.phase) {
@@ -367,49 +381,83 @@ const redrawCanvas = useCallback(() => {
     }
 
     const handleChatMessage = (payload: ServerMessage) => {
+      if (payload.roomCode && payload.roomCode !== roomCode) return
+
       setMessages((current) => [
-        ...current,
-        { text: payload.text, type: payload.type },
+        ...(payload.id && current.some((message) => message.id === payload.id)
+          ? current
+          : [
+              ...current,
+              {
+                id: payload.id,
+                text: payload.text,
+                type: payload.type,
+                timestamp: payload.timestamp,
+              },
+            ]),
       ])
+    }
+
+    const handleChatHistory = (payload: {
+      roomCode?: string
+      messages?: ServerMessage[]
+    }) => {
+      if (payload.roomCode && payload.roomCode !== roomCode) return
+
+      setMessages(
+        payload.messages?.map((message) => ({
+          id: message.id,
+          text: message.text,
+          type: message.type,
+          timestamp: message.timestamp,
+        })) ?? initialMessages,
+      )
     }
 
     const handleGuessResult = (payload: {
       correct: boolean
       playerId: string
       points?: number
+      score?: number
     }) => {
       if (payload.correct && payload.playerId === socket.id) {
         setHasGuessedCorrectly(true)
         setGuess('')
-        setScore((current) => current + (payload.points ?? 0))
+        setScore((current) => payload.score ?? current + (payload.points ?? 0))
       }
     }
 
     const handleRoundEnd = (payload: {
-  word?: string | null
-  scores?: Player[]
-}) => {
-  const word = typeof payload.word === 'string' ? payload.word : ''
+      word?: string | null
+      scores?: Player[]
+      hasGuessedCorrectly?: boolean
+    }) => {
+      const word = typeof payload.word === 'string' ? payload.word : ''
 
-  setHasRoundEnded(true)
-  setIsChoosingWord(false)
-  setSelectedWord(word)
-  setWordLength(word.replace(/\s/g, '').length)
-  setTimeLeft(0)
-  setServerDeadline(null)
+      setHasRoundEnded(true)
+      setIsChoosingWord(false)
+      setHasGuessedCorrectly(payload.hasGuessedCorrectly ?? false)
+      setSelectedWord(word)
+      setWordLength(word.replace(/\s/g, '').length)
+      setTimeLeft(0)
+      setServerDeadline(null)
 
-  activeStrokeRef.current = null
-  isDrawingRef.current = false
+      activeStrokeRef.current = null
+      isDrawingRef.current = false
 
-  if (payload.scores) {
-    setGamePlayers(
-      payload.scores.map((player, index) => ({
-        ...player,
-        rank: index + 1,
-      })),
-    )
-  }
-}
+      if (payload.scores) {
+        setGamePlayers(
+          payload.scores.map((player, index) => ({
+            ...player,
+            rank: index + 1,
+          })),
+        )
+        const currentScore = payload.scores.find(
+          (player) => player.id === socket.id,
+        )?.points
+        if (currentScore !== undefined) setScore(currentScore)
+      }
+    }
 
     const handleGameOver = (payload: {
       winner: Player | null
@@ -508,6 +556,7 @@ const handleDrawingMove = (payload: DrawingPayload) => {
     socket.on('word_choices', handleWordChoices)
     socket.on('word_chosen', handleWordChosen)
     socket.on('chat_message', handleChatMessage)
+    socket.on('chat_history', handleChatHistory)
     socket.on('guess_result', handleGuessResult)
     socket.on('round_end', handleRoundEnd)
     socket.on('game_over', handleGameOver)
@@ -530,6 +579,7 @@ const handleDrawingMove = (payload: DrawingPayload) => {
       socket.off('word_choices', handleWordChoices)
       socket.off('word_chosen', handleWordChosen)
       socket.off('chat_message', handleChatMessage)
+      socket.off('chat_history', handleChatHistory)
       socket.off('guess_result', handleGuessResult)
       socket.off('round_end', handleRoundEnd)
       socket.off('game_over', handleGameOver)
@@ -577,7 +627,11 @@ useEffect(() => {
   const updateCountdown = () => {
     const remaining = Math.max(
       0,
-      Math.ceil((serverDeadline - Date.now()) / 1000),
+      Math.ceil(
+        (serverDeadline -
+          (Date.now() + serverClockOffsetRef.current)) /
+          1000,
+      ),
     )
 
     setTimeLeft((current) =>
@@ -800,7 +854,9 @@ useEffect(() => {
         drawerName={currentDrawer?.name}
         isChoosingWord={isChoosingWord}
         hasRoundEnded={hasRoundEnded}
+        hasGuessedCorrectly={hasGuessedCorrectly}
         gameFinished={gameFinished}
+        onLeaveRoom={onReturnToLobby}
       />
 
       {startError && (
@@ -845,7 +901,7 @@ useEffect(() => {
       <button
         type="button"
         className="winner-lobby-button"
-        onClick={() => window.location.assign('/')}
+        onClick={onReturnToLobby}
       >
         Return to Lobby
       </button>

@@ -185,11 +185,9 @@ This project demonstrates practical use of:
 
 ## 🔮 Future Improvements
 
-- Improve drawing synchronization and canvas recovery.
-- Make countdown and round transitions more reliable.
 - Improve cleanup of disconnected players.
 - Add additional word categories and game settings.
-- Improve reconnect handling and multiplayer testing.
+- Persist active rooms across backend restarts.
 - Add automated tests for room management and game flow.
 
 ## 👨‍💻 Author

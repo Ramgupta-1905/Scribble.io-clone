@@ -5,8 +5,10 @@ import type {
 } from '../layout/AvatarSelector'
 
 export type ChatMessage = {
+  id?: string
   text: string
   type: string
+  timestamp?: number
 }
 
 export type DrawingPoint = {

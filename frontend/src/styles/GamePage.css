@@ -53,7 +53,7 @@
   min-height: 52px;
   box-sizing: border-box;
   display: grid;
-  grid-template-columns: 68px minmax(130px, 1fr) minmax(100px, 1fr) 40px;
+  grid-template-columns: 68px minmax(130px, 1fr) minmax(100px, 1fr) 40px 52px;
   align-items: center;
   gap: 8px;
   padding: 3px 10px;
@@ -123,6 +123,18 @@
   background: transparent;
   font-size: 31px;
   cursor: pointer;
+}
+
+.game-leave-button {
+  min-width: 48px;
+  height: 34px;
+  padding: 0 7px;
+  border: 1px solid #c8c8c8;
+  border-radius: 4px;
+  background: #fff;
+  color: #8b1e1e;
+  font-size: 13px;
+  font-weight: 700;
 }
 
 /* Three-column layout */
@@ -832,7 +844,7 @@
 
 @media (max-width: 480px) {
   .game-status {
-    grid-template-columns: 58px minmax(90px, auto) minmax(0, 1fr) 32px;
+    grid-template-columns: 58px minmax(82px, auto) minmax(0, 1fr) 32px 44px;
     gap: 4px;
     padding-right: 6px;
     padding-left: 6px;
@@ -865,6 +877,13 @@
     width: 32px;
     height: 32px;
     font-size: 27px;
+  }
+
+  .game-leave-button {
+    min-width: 42px;
+    height: 30px;
+    padding: 0 4px;
+    font-size: 11px;
   }
 }
 

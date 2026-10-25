@@ -177,8 +177,8 @@ useEffect(() => {
 
     setRoom(null)
     localStorage.removeItem(SESSION_STORAGE_KEY)
+    restoredSessionRef.current = null
     setIsSettingsOpen(false)
-    setError('')
   }
 }, [location.pathname])
 
@@ -292,7 +292,9 @@ useEffect(() => {
     const onSessionRestoreFailed = (payload: { message?: string }) => {
       restoredSessionRef.current = null
       localStorage.removeItem(SESSION_STORAGE_KEY)
+      setRoom(null)
       setError(payload.message || 'Could not restore your previous game session.')
+      navigate('/')
     }
 
     const onRoomState = (serverRoom: ServerRoom) => {
@@ -581,6 +583,7 @@ useEffect(() => {
                 setIsSettingsOpen((open) => !open)
               }
               onCloseSettings={() => setIsSettingsOpen(false)}
+              onReturnToLobby={() => navigate('/')}
             />
           }
         />
