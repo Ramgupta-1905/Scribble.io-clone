@@ -430,6 +430,13 @@ function startTimer(room) {
 
   room.deadline = Date.now() + room.settings.drawTime * 1000
 
+console.log('[TIMER START]', {
+  room: room.code,
+  phase: room.status,
+  drawTime: room.settings.drawTime,
+  deadline: room.deadline,
+})
+
   room.timer = setTimeout(() => {
     endTurn(room)
   }, room.settings.drawTime * 1000)
@@ -889,13 +896,31 @@ function submitChat(socket, payload = {}) {
   })
 }
 
+
 function drawEvent(socket, event, payload = {}) {
   const room = getRoomForSocket(socket)
 
-  if (!room || room.status !== 'playing') return
+  if (!room || room.status !== 'playing') {
+    console.log('[DRAW REJECTED: ROOM/PHASE]', {
+      event,
+      socketId: socket.id,
+      roomFound: Boolean(room),
+      phase: room?.status,
+    })
+    return
+  }
 
   const drawer = room.players[room.drawerIndex]
-  if (drawer?.id !== socket.id) return
+
+  if (drawer?.id !== socket.id) {
+    console.log('[DRAW REJECTED: NOT DRAWER]', {
+      event,
+      socketId: socket.id,
+      expectedDrawerId: drawer?.id,
+      room: room.code,
+    })
+    return
+  }
 
   const safePayload = {
     x: clamp(payload?.x, 0, 10000),
@@ -916,14 +941,26 @@ function drawEvent(socket, event, payload = {}) {
       points: [{ x: safePayload.x, y: safePayload.y }],
     }
   } else if (event === 'draw_move') {
-    if (!room.activeStroke) return
+    if (!room.activeStroke) {
+      console.log('[DRAW MOVE IGNORED: NO ACTIVE STROKE]', {
+        room: room.code,
+        socketId: socket.id,
+      })
+      return
+    }
 
     room.activeStroke.points.push({
       x: safePayload.x,
       y: safePayload.y,
     })
   } else if (event === 'draw_end') {
-    if (!room.activeStroke) return
+    if (!room.activeStroke) {
+      console.log('[DRAW END IGNORED: NO ACTIVE STROKE]', {
+        room: room.code,
+        socketId: socket.id,
+      })
+      return
+    }
 
     room.strokes.push(room.activeStroke)
     room.activeStroke = null
@@ -937,6 +974,7 @@ function drawEvent(socket, event, payload = {}) {
     })
   }
 }
+
 
 function clearCanvas(socket) {
   const room = getRoomForSocket(socket)
