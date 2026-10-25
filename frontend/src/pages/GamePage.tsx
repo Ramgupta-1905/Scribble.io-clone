@@ -896,7 +896,6 @@ useEffect(() => {
                     drawingTool={drawingTool}
                     drawingColor={drawingColor}
                     brushSize={brushSize}
-                    canvasBackground={canvasBackground}
                     canDraw={
                       hasStarted &&
                       isCurrentPlayerDrawing &&

@@ -1,5 +1,5 @@
 
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import type { DrawingPoint, DrawingStroke } from './GameTypes'
 import { socket } from '../../lib/socket'
@@ -9,7 +9,6 @@ type DrawingCanvasProps = {
   drawingTool: 'pencil' | 'eraser'
   drawingColor: string
   brushSize: number
-  canvasBackground: string
   canDraw?: boolean
   activeStrokeRef: React.MutableRefObject<DrawingStroke | null>
   isDrawingRef: React.MutableRefObject<boolean>
@@ -19,8 +18,15 @@ type DrawingCanvasProps = {
 function drawStroke(
   context: CanvasRenderingContext2D,
   stroke: DrawingStroke,
+  canvasWidth: number,
+  canvasHeight: number,
 ) {
   if (stroke.points.length === 0) return
+
+  const toCanvasPoint = (point: DrawingPoint) => ({
+    x: point.x * canvasWidth,
+    y: point.y * canvasHeight,
+  })
 
   context.save()
   context.lineCap = 'round'
@@ -31,7 +37,7 @@ function drawStroke(
   context.strokeStyle = stroke.color
   context.fillStyle = stroke.color
 
-  const first = stroke.points[0]
+  const first = toCanvasPoint(stroke.points[0])
 
   if (stroke.points.length === 1) {
     context.beginPath()
@@ -42,8 +48,8 @@ function drawStroke(
     context.moveTo(first.x, first.y)
 
     for (let i = 1; i < stroke.points.length; i += 1) {
-      const previous = stroke.points[i - 1]
-      const current = stroke.points[i]
+      const previous = toCanvasPoint(stroke.points[i - 1])
+      const current = toCanvasPoint(stroke.points[i])
 
       context.quadraticCurveTo(
         previous.x,
@@ -53,7 +59,7 @@ function drawStroke(
       )
     }
 
-    const last = stroke.points[stroke.points.length - 1]
+    const last = toCanvasPoint(stroke.points[stroke.points.length - 1])
     context.lineTo(last.x, last.y)
     context.stroke()
   }
@@ -91,10 +97,12 @@ export function redrawDrawingCanvas(
   context.fillStyle = backgroundColor
   context.fillRect(0, 0, rect.width, rect.height)
 
-  strokes.forEach((stroke) => drawStroke(context, stroke))
+  strokes.forEach((stroke) =>
+    drawStroke(context, stroke, rect.width, rect.height),
+  )
 
   if (activeStroke) {
-    drawStroke(context, activeStroke)
+    drawStroke(context, activeStroke, rect.width, rect.height)
   }
 }
 
@@ -103,67 +111,54 @@ export default function DrawingCanvas({
   drawingTool,
   drawingColor,
   brushSize,
-  canvasBackground,
   canDraw = true,
   activeStrokeRef,
   isDrawingRef,
   onStrokeFinished,
 }: DrawingCanvasProps) {
-  useEffect(() => {
-    redrawDrawingCanvas(
-      canvasRef.current,
-      [],
-      null,
-      canvasBackground,
-    )
-  }, [canvasRef, canvasBackground])
+  const activePointerIdRef = useRef<number | null>(null)
 
   useEffect(() => {
     if (!canDraw) {
       activeStrokeRef.current = null
       isDrawingRef.current = false
+      activePointerIdRef.current = null
     }
   }, [canDraw, activeStrokeRef, isDrawingRef])
 
   const getPoint = (
-    event: ReactPointerEvent<HTMLCanvasElement>,
+    clientX: number,
+    clientY: number,
+    canvas: HTMLCanvasElement,
   ): DrawingPoint => {
-    const rect = event.currentTarget.getBoundingClientRect()
+    const rect = canvas.getBoundingClientRect()
 
     return {
-      x: Math.max(0, Math.min(rect.width, event.clientX - rect.left)),
-      y: Math.max(0, Math.min(rect.height, event.clientY - rect.top)),
+      x: rect.width
+        ? Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
+        : 0,
+      y: rect.height
+        ? Math.max(0, Math.min(1, (clientY - rect.top) / rect.height))
+        : 0,
     }
   }
 
   const handlePointerDown = (
     event: ReactPointerEvent<HTMLCanvasElement>,
   ) => {
-    console.log('[DRAW DEBUG]', {
-      canDraw,
-      socketConnected: socket.connected,
-      isDrawing: isDrawingRef.current,
-      pointerType: event.pointerType,
-      button: event.button,
-    })
-
     if (!canDraw) {
-      console.warn('[DRAW BLOCKED] canDraw is false')
       return
     }
 
-    if (!socket.connected) {
-      console.warn('[DRAW BLOCKED] Socket is disconnected')
+    if (!socket.connected || isDrawingRef.current || !event.isPrimary) {
       return
     }
 
-    if (isDrawingRef.current) {
-      console.warn('[DRAW BLOCKED] A stroke is already active')
-      return
-    }
-
-    if (event.button !== 0 && event.pointerType === 'mouse') {
-      console.warn('[DRAW BLOCKED] Not the primary mouse button')
+    if (event.button !== 0) {
+      console.warn('[DRAW BLOCKED] Non-primary pointer button:', {
+        pointerType: event.pointerType,
+        button: event.button,
+      })
       return
     }
 
@@ -171,7 +166,6 @@ export default function DrawingCanvas({
     const context = canvas.getContext('2d')
 
     if (!context) {
-      console.warn('[DRAW BLOCKED] Canvas context unavailable')
       return
     }
 
@@ -179,11 +173,16 @@ export default function DrawingCanvas({
 
     try {
       canvas.setPointerCapture(event.pointerId)
-    } catch {
-      console.warn('[DRAW DEBUG] Pointer capture unavailable')
+    } catch (error) {
+      console.warn(
+        '[DRAW] Could not capture pointer; drawing will end at the canvas boundary.',
+        error,
+      )
     }
 
-    const point = getPoint(event)
+    activePointerIdRef.current = event.pointerId
+    const rect = canvas.getBoundingClientRect()
+    const point = getPoint(event.clientX, event.clientY, canvas)
 
     const stroke: DrawingStroke = {
       color: drawingColor,
@@ -197,14 +196,7 @@ export default function DrawingCanvas({
 
     const ratio = window.devicePixelRatio || 1
     context.setTransform(ratio, 0, 0, ratio, 0, 0)
-    drawStroke(context, stroke)
-
-    console.log('[DRAW DEBUG] Emitting draw_start', {
-      point,
-      color: stroke.color,
-      size: stroke.width,
-      tool: stroke.tool,
-    })
+    drawStroke(context, stroke, rect.width, rect.height)
 
     socket.emit('draw_start', {
       x: point.x,
@@ -224,44 +216,57 @@ export default function DrawingCanvas({
       !canDraw ||
       !socket.connected ||
       !isDrawingRef.current ||
-      !stroke
+      !stroke ||
+      activePointerIdRef.current !== event.pointerId
     ) {
       return
     }
 
     event.preventDefault()
 
-    const current = getPoint(event)
-    const previous = stroke.points[stroke.points.length - 1]
+    const canvas = event.currentTarget
+    const rect = canvas.getBoundingClientRect()
+    const context = canvas.getContext('2d')
+    const coalescedEvents =
+      event.nativeEvent.getCoalescedEvents?.() ?? []
+    const pointerEvents = coalescedEvents.length
+      ? coalescedEvents
+      : [event.nativeEvent]
 
-    stroke.points.push(current)
+    for (const pointerEvent of pointerEvents) {
+      const current = getPoint(
+        pointerEvent.clientX,
+        pointerEvent.clientY,
+        canvas,
+      )
+      const previous = stroke.points[stroke.points.length - 1]
+      stroke.points.push(current)
 
-    const context = canvasRef.current?.getContext('2d')
+      if (context) {
+        const ratio = window.devicePixelRatio || 1
+        context.setTransform(ratio, 0, 0, ratio, 0, 0)
+        context.save()
+        context.beginPath()
+        context.moveTo(previous.x * rect.width, previous.y * rect.height)
+        context.lineTo(current.x * rect.width, current.y * rect.height)
+        context.lineWidth = stroke.width
+        context.lineCap = 'round'
+        context.lineJoin = 'round'
+        context.globalCompositeOperation =
+          stroke.tool === 'eraser' ? 'destination-out' : 'source-over'
+        context.strokeStyle = stroke.color
+        context.stroke()
+        context.restore()
+      }
 
-    if (context) {
-      const ratio = window.devicePixelRatio || 1
-      context.setTransform(ratio, 0, 0, ratio, 0, 0)
-      context.save()
-      context.beginPath()
-      context.moveTo(previous.x, previous.y)
-      context.lineTo(current.x, current.y)
-      context.lineWidth = stroke.width
-      context.lineCap = 'round'
-      context.lineJoin = 'round'
-      context.globalCompositeOperation =
-        stroke.tool === 'eraser' ? 'destination-out' : 'source-over'
-      context.strokeStyle = stroke.color
-      context.stroke()
-      context.restore()
+      socket.emit('draw_move', {
+        x: current.x,
+        y: current.y,
+        color: stroke.color,
+        size: stroke.width,
+        tool: stroke.tool,
+      })
     }
-
-    socket.emit('draw_move', {
-      x: current.x,
-      y: current.y,
-      color: stroke.color,
-      size: stroke.width,
-      tool: stroke.tool,
-    })
   }
 
   const finishDrawing = (
@@ -270,7 +275,13 @@ export default function DrawingCanvas({
     const canvas = event.currentTarget
     const stroke = activeStrokeRef.current
 
-    if (!isDrawingRef.current || !stroke) return
+    if (
+      !isDrawingRef.current ||
+      !stroke ||
+      activePointerIdRef.current !== event.pointerId
+    ) {
+      return
+    }
 
     if (canvas.hasPointerCapture(event.pointerId)) {
       canvas.releasePointerCapture(event.pointerId)
@@ -278,6 +289,7 @@ export default function DrawingCanvas({
 
     activeStrokeRef.current = null
     isDrawingRef.current = false
+    activePointerIdRef.current = null
 
     if (canDraw && socket.connected) {
       socket.emit('draw_end', {
@@ -287,6 +299,14 @@ export default function DrawingCanvas({
       })
 
       onStrokeFinished(stroke)
+    }
+  }
+
+  const handlePointerLeave = (
+    event: ReactPointerEvent<HTMLCanvasElement>,
+  ) => {
+    if (!event.currentTarget.hasPointerCapture(event.pointerId)) {
+      finishDrawing(event)
     }
   }
 
@@ -301,6 +321,8 @@ export default function DrawingCanvas({
         onPointerMove={handlePointerMove}
         onPointerUp={finishDrawing}
         onPointerCancel={finishDrawing}
+        onPointerLeave={handlePointerLeave}
+        onLostPointerCapture={finishDrawing}
       />
 
       <div className="drawing-reactions">
