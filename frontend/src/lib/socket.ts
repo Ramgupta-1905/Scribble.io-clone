@@ -8,7 +8,7 @@ const SERVER_URL =
 export const socket = io(SERVER_URL, {
   autoConnect: true,
   reconnection: true,
-  reconnectionAttempts: 10,
+  reconnectionAttempts: Infinity,
   reconnectionDelay: 1000,
   reconnectionDelayMax: 5000,
   timeout: 20000,
@@ -25,4 +25,12 @@ socket.on('connect_error', (error) => {
 
 socket.on('disconnect', (reason) => {
   console.warn('[Socket.IO] Disconnected:', reason)
+})
+
+socket.io.on('reconnect_attempt', (attempt) => {
+  console.info('[Socket.IO] Reconnection attempt:', attempt)
+})
+
+socket.io.on('reconnect_error', (error) => {
+  console.error('[Socket.IO] Reconnection error:', error.message)
 })

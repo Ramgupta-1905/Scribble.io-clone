@@ -21,6 +21,7 @@ The project was developed as part of a Full Stack Intern Assignment.
 - **Interactive Drawing Canvas:** Draw using a browser-based HTML5 Canvas.
 - **Drawing Tools:** Pencil, multiple colors, adjustable brush size, and eraser.
 - **Real-Time Communication:** Socket.IO events synchronize game activity between connected players.
+- **Connection Recovery:** Reconnects and restores room membership after temporary connection loss.
 - **Word Selection:** The drawer selects a secret word from available choices.
 - **Guessing and Chat:** Players submit guesses and receive game feedback.
 - **Scoring and Leaderboard:** Track player scores throughout the game.

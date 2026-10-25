@@ -182,6 +182,8 @@ export default function GamePage({
 
   const isCurrentPlayerDrawing =
     Boolean(socket.id && drawerId && socket.id === drawerId)
+  const isCurrentPlayerDrawingRef = useRef(isCurrentPlayerDrawing)
+  const roomCode = room?.code
 
   const drawDuration = Math.max(
     5,
@@ -198,6 +200,11 @@ const redrawCanvas = useCallback(() => {
   )
 }, [strokes, canvasBackground])
 
+  const redrawCanvasRef = useRef(redrawCanvas)
+
+  useEffect(() => {
+    redrawCanvasRef.current = redrawCanvas
+  }, [redrawCanvas])
 
   useEffect(() => {
     redrawCanvas()
@@ -216,7 +223,21 @@ const redrawCanvas = useCallback(() => {
 
   // Receive room changes, game state, chat, and drawing from the server.
   useEffect(() => {
-    if (!room) return
+    if (!roomCode) return
+
+    const requestGameSync = () => {
+      if (socket.connected) {
+        socket.emit('request_game_sync')
+      }
+    }
+
+    const handleSessionRestored = (payload: {
+      room?: { code?: string }
+    }) => {
+      if (payload.room?.code === roomCode) {
+        requestGameSync()
+      }
+    }
 
     const handleRoomState = (payload: {
       code?: string
@@ -224,7 +245,7 @@ const redrawCanvas = useCallback(() => {
       settings?: Record<string, string | number>
       status?: string
     }) => {
-      if (payload.code !== room.code) return
+      if (payload.code !== roomCode) return
 
       if (payload.players) {
         setGamePlayers(
@@ -245,7 +266,7 @@ const redrawCanvas = useCallback(() => {
     }
 
     const handleGameState = (payload: GameStatePayload) => {
-      if (payload.code && payload.code !== room.code) return
+      if (payload.code && payload.code !== roomCode) return
 
       if (payload.players) {
         setGamePlayers(
@@ -445,8 +466,8 @@ const handleDrawingMove = (payload: DrawingPayload) => {
 
   // Redraw only for strokes received from other players.
   // The current drawer renders its own pointer movement directly.
-  if (!isCurrentPlayerDrawing) {
-    redrawCanvas()
+  if (!isCurrentPlayerDrawingRef.current) {
+    redrawCanvasRef.current()
   }
 }
 
@@ -481,6 +502,7 @@ const handleDrawingMove = (payload: DrawingPayload) => {
   setStrokes((payload.strokes ?? []).map(normalizeStroke))
 }
     socket.on('room_state', handleRoomState)
+    socket.on('session_restored', handleSessionRestored)
     socket.on('game_state', handleGameState)
     socket.on('round_start', handleRoundStart)
     socket.on('word_choices', handleWordChoices)
@@ -497,11 +519,12 @@ const handleDrawingMove = (payload: DrawingPayload) => {
     socket.on('game_error', handleError)
     socket.on('draw_history', handleDrawHistory)
 
-    // Request a fresh snapshot after listeners are registered.
-    socket.emit('request_game_sync')
+    // Request a snapshot after listeners are registered.
+    requestGameSync()
 
     return () => {
       socket.off('room_state', handleRoomState)
+      socket.off('session_restored', handleSessionRestored)
       socket.off('game_state', handleGameState)
       socket.off('round_start', handleRoundStart)
       socket.off('word_choices', handleWordChoices)
@@ -518,7 +541,11 @@ const handleDrawingMove = (payload: DrawingPayload) => {
       socket.off('game_error', handleError)
       socket.off('draw_history', handleDrawHistory)
     }
-  }, [room?.code, redrawCanvas])
+  }, [roomCode])
+
+  useEffect(() => {
+    isCurrentPlayerDrawingRef.current = isCurrentPlayerDrawing
+  }, [isCurrentPlayerDrawing])
 
   // Synchronize the room props supplied by App.tsx.
   useEffect(() => {

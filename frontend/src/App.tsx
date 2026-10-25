@@ -160,6 +160,10 @@ function AppRoutes() {
   const [error, setError] = useState('')
 
   const previousPathRef = useRef(location.pathname)
+  const restoredSessionRef = useRef<{
+    socketId: string
+    roomCode: string
+  } | null>(null)
 
   
 useEffect(() => {
@@ -204,6 +208,13 @@ useEffect(() => {
       room: ServerRoom
       sessionToken?: string
     }) => {
+      if (socket.id) {
+        restoredSessionRef.current = {
+          socketId: socket.id,
+          roomCode: payload.room.code.toUpperCase(),
+        }
+      }
+
       if (payload.sessionToken) {
         localStorage.setItem(
           SESSION_STORAGE_KEY,
@@ -225,6 +236,13 @@ useEffect(() => {
       room: ServerRoom
       sessionToken?: string
     }) => {
+      if (socket.id) {
+        restoredSessionRef.current = {
+          socketId: socket.id,
+          roomCode: payload.room.code.toUpperCase(),
+        }
+      }
+
       if (payload.sessionToken) {
         localStorage.setItem(
           SESSION_STORAGE_KEY,
@@ -246,6 +264,13 @@ useEffect(() => {
       room: ServerRoom
       sessionToken?: string
     }) => {
+      if (socket.id) {
+        restoredSessionRef.current = {
+          socketId: socket.id,
+          roomCode: payload.room.code.toUpperCase(),
+        }
+      }
+
       if (payload.sessionToken) {
         localStorage.setItem(
           SESSION_STORAGE_KEY,
@@ -265,6 +290,7 @@ useEffect(() => {
     }
 
     const onSessionRestoreFailed = (payload: { message?: string }) => {
+      restoredSessionRef.current = null
       localStorage.removeItem(SESSION_STORAGE_KEY)
       setError(payload.message || 'Could not restore your previous game session.')
     }
@@ -319,7 +345,7 @@ useEffect(() => {
         .get('room')
         ?.toUpperCase()
 
-      if (!urlCode) return
+      if (!urlCode || !socket.id) return
 
       try {
         const raw = localStorage.getItem(SESSION_STORAGE_KEY)
@@ -338,12 +364,22 @@ useEffect(() => {
           return
         }
 
-        if (room?.code === urlCode) return
+        const restoredSession = restoredSessionRef.current
+        if (
+          restoredSession?.socketId === socket.id &&
+          restoredSession.roomCode === urlCode
+        ) {
+          return
+        }
 
         socket.emit('restore_session', {
           token: saved.token,
           roomCode: saved.roomCode,
         })
+        restoredSessionRef.current = {
+          socketId: socket.id,
+          roomCode: urlCode,
+        }
       } catch {
         localStorage.removeItem(SESSION_STORAGE_KEY)
       }

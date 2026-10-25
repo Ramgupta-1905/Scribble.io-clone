@@ -1133,7 +1133,19 @@ app.get('/health', (_req, res) => {
 })
 
 io.on('connection', (socket) => {
-  console.log('Connected:', socket.id)
+  console.log(
+    '[Socket.IO] Connected:',
+    socket.id,
+    'transport:',
+    socket.conn.transport.name,
+  )
+  socket.conn.on('upgrade', (transport) => {
+    console.info(
+      '[Socket.IO] Transport upgraded:',
+      socket.id,
+      transport.name,
+    )
+  })
 
   socket.on('create_room', (payload) => createRoom(socket, payload))
   socket.on('join_room', (payload) => joinRoom(socket, payload))
@@ -1239,8 +1251,15 @@ socket.on('quick_play', (payload = {}) => {
     }
   })
 
-  socket.on('disconnect', () => {
-    console.log('Disconnected:', socket.id)
+  socket.on('disconnect', (reason) => {
+    console.warn(
+      '[Socket.IO] Disconnected:',
+      socket.id,
+      'reason:',
+      reason,
+      'transport:',
+      socket.conn.transport.name,
+    )
 
     const room = getRoomForSocket(socket)
     const player = getPlayer(room, socket)
