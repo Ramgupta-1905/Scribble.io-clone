@@ -1,15 +1,27 @@
 
 import { useState } from 'react'
-import AvatarSelector from '../layout/AvatarSelector'
+import AvatarSelector, {
+  DEFAULT_PLAYER_AVATAR,
+} from '../layout/AvatarSelector'
+import type { PlayerAvatar } from '../layout/AvatarSelector'
 import LandingActions from './LandingActions'
 
 type PlayerSetupProps = {
-  onPlay: (username: string, language: string) => void
-  onCreateRoom: (username: string, language: string) => void
+  onPlay: (
+    username: string,
+    language: string,
+    avatar: PlayerAvatar,
+  ) => void
+  onCreateRoom: (
+    username: string,
+    language: string,
+    avatar: PlayerAvatar,
+  ) => void
   onJoinRoom: (
     username: string,
     language: string,
     roomCode: string,
+    avatar: PlayerAvatar,
   ) => void
 }
 
@@ -22,6 +34,8 @@ function PlayerSetup({
   const [language, setLanguage] = useState('English')
   const [roomCode, setRoomCode] = useState('')
   const [error, setError] = useState('')
+  const [selectedAvatar, setSelectedAvatar] =
+    useState<PlayerAvatar>(DEFAULT_PLAYER_AVATAR)
 
   const getPlayerDetails = () => {
     const name = username.trim()
@@ -39,14 +53,14 @@ function PlayerSetup({
     const player = getPlayerDetails()
     if (!player) return
 
-    onPlay(player.name, player.language)
+    onPlay(player.name, player.language, selectedAvatar)
   }
 
   const handleCreateRoom = () => {
     const player = getPlayerDetails()
     if (!player) return
 
-    onCreateRoom(player.name, player.language)
+    onCreateRoom(player.name, player.language, selectedAvatar)
   }
 
   const handleJoinRoom = () => {
@@ -60,7 +74,12 @@ function PlayerSetup({
       return
     }
 
-    onJoinRoom(player.name, player.language, code)
+    onJoinRoom(
+      player.name,
+      player.language,
+      code,
+      selectedAvatar,
+    )
   }
 
   return (
@@ -92,7 +111,10 @@ function PlayerSetup({
           </select>
         </div>
 
-        <AvatarSelector />
+        <AvatarSelector
+          value={selectedAvatar}
+          onChange={setSelectedAvatar}
+        />
       </div>
 
       {error && (

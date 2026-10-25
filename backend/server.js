@@ -1,3 +1,4 @@
+
 const express = require('express')
 const http = require('http')
 const cors = require('cors')
@@ -126,13 +127,29 @@ function normalizeSettings(raw = {}, existing = {}) {
   }
 }
 
+function normalizeAvatar(raw, fallbackColor = '#ff3434') {
+  // Treat absent or malformed client avatar data as a default avatar.
+  // This keeps older clients and direct room joins from crashing the server.
+  const avatar = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}
+  const allowedEyes = ['round', 'square', 'sleepy', 'angry', 'surprised', 'wink', 'star', 'glasses', 'hearts', 'happy', 'crying']
+  const allowedMouths = ['none', 'smile', 'straight', 'open', 'frown', 'grin', 'tongue', 'laugh', 'teeth', 'smirk', 'tiny']
+
+  return {
+    color: typeof avatar.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(avatar.color) ? avatar.color : fallbackColor,
+    eye: typeof avatar.eye === 'string' && allowedEyes.includes(avatar.eye) ? avatar.eye : 'round',
+    mouth: typeof avatar.mouth === 'string' && allowedMouths.includes(avatar.mouth) ? avatar.mouth : 'smile',
+  }
+}
+
 function publicPlayer(player) {
   return {
     id: player.id,
     name: player.name,
     points: player.points,
-    color: player.color,
+    color: player.color || '#ffe600',
     face: player.face,
+    eye: player.eye || 'round',
+    mouth: player.mouth || 'smile',
     isHost: player.isHost,
   }
 }
@@ -458,7 +475,7 @@ function createRoom(socket, payload = {}) {
       reconnectTimer: null,
       name,
       points: 0,
-      color: '#ff3434',
+      ...normalizeAvatar(payload.avatar, '#ff3434'),
       face: '☺',
       isHost: true,
     }],
@@ -606,9 +623,7 @@ function joinRoom(socket, payload = {}) {
     reconnectTimer: null,
     name: playerName,
     points: 0,
-    color: ['#ff3434', '#3478f6', '#21a675', '#a855f7'][
-      room.players.length % 4
-    ],
+    ...normalizeAvatar(payload.avatar, ['#ff3434', '#3478f6', '#21a675', '#a855f7'][room.players.length % 4]),
     face: '☺',
     isHost: false,
   }
@@ -948,12 +963,18 @@ function undoDrawing(socket) {
 function restoreSession(socket, payload = {}) {
   const token = String(payload.token || '')
   const code = String(payload.roomCode || '').trim().toUpperCase()
-  if (!token || !code) return fail(socket, 'Your saved game session is invalid.')
+
+  if (!token || !code) {
+    return fail(socket, 'Your saved game session is invalid.')
+  }
 
   const room = rooms.get(code)
   const player = room?.players.find((item) => item.sessionToken === token)
+
   if (!room || !player || room.status === 'finished') {
-    socket.emit('session_restore_failed', { message: 'This game session has expired. Please join the room again.' })
+    socket.emit('session_restore_failed', {
+      message: 'This game session has expired. Please join the room again.',
+    })
     return
   }
 
@@ -963,11 +984,19 @@ function restoreSession(socket, payload = {}) {
   }
 
   const oldId = player.id
+
   if (oldId !== socket.id) {
     socketRooms.delete(oldId)
     player.id = socket.id
-    if (room.hostId === oldId) room.hostId = socket.id
-    if (room.correctGuessers.delete(oldId)) room.correctGuessers.add(socket.id)
+
+    if (room.hostId === oldId) {
+      room.hostId = socket.id
+    }
+
+    if (room.correctGuessers.delete(oldId)) {
+      room.correctGuessers.add(socket.id)
+    }
+
     if (room.pendingScores.has(oldId)) {
       const points = room.pendingScores.get(oldId)
       room.pendingScores.delete(oldId)
@@ -977,19 +1006,12 @@ function restoreSession(socket, payload = {}) {
 
   socket.join(room.code)
   socketRooms.set(socket.id, room.code)
+
   socket.emit('session_restored', {
     code: room.code,
     sessionToken: player.sessionToken,
     room: publicRoom(room),
   })
-  emitRoom(room)
-  sendGameState(room)
-  if (room.status === 'playing') {
-    socket.emit('draw_history', { strokes: room.strokes })
-  }
-  if (room.status === 'choosing' && room.players[room.drawerIndex]?.id === socket.id) {
-    socket.emit('word_choices', { words: room.wordOptions })
-  }
 }
 
 function leaveRoom(socket) {
@@ -1138,6 +1160,7 @@ socket.on('quick_play', (payload = {}) => {
   if (availableRoom) {
     joinRoom(socket, {
       playerName,
+      avatar: payload.avatar,
       code: availableRoom.code,
     })
     return
@@ -1146,6 +1169,7 @@ socket.on('quick_play', (payload = {}) => {
   // No available public room: create a new one.
   createRoom(socket, {
     playerName,
+    avatar: payload.avatar,
     isPrivate: false,
     settings: {
       maxPlayers: 20,
@@ -1176,18 +1200,51 @@ socket.on('quick_play', (payload = {}) => {
   socket.on('draw_undo', () => undoDrawing(socket))
   socket.on('leave_room', () => leaveRoom(socket))
 
-  socket.on('restore_session', (payload) => restoreSession(socket, payload))
+  socket.on('restore_session', (payload) => {
+    restoreSession(socket, payload)
+  })
+
+  socket.on('request_game_sync', () => {
+    const room = getRoomForSocket(socket)
+    const player = getPlayer(room, socket)
+
+    if (!room || !player) return
+
+    socket.emit('room_state', publicRoom(room))
+    sendGameState(room)
+
+    if (room.status === 'playing') {
+      socket.emit('draw_history', {
+        strokes: room.strokes,
+      })
+    }
+
+    if (
+      room.status === 'choosing' &&
+      room.players[room.drawerIndex]?.id === socket.id
+    ) {
+      socket.emit('word_choices', {
+        words: room.wordOptions,
+      })
+    }
+  })
 
   socket.on('disconnect', () => {
     console.log('Disconnected:', socket.id)
+
     const room = getRoomForSocket(socket)
     const player = getPlayer(room, socket)
+
     if (!room || !player) return
 
-    // Keep the player in the room briefly so a browser refresh can restore them.
-    if (player.reconnectTimer) clearTimeout(player.reconnectTimer)
+    if (player.reconnectTimer) {
+      clearTimeout(player.reconnectTimer)
+    }
+
     player.reconnectTimer = setTimeout(() => {
       player.reconnectTimer = null
+
+      // Remove the player only if they have not reconnected.
       if (player.id === socket.id && socketRooms.has(socket.id)) {
         leaveRoom(socket)
       }

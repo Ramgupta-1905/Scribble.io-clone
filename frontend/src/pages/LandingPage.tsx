@@ -2,15 +2,27 @@
 import GameLogo from '../components/layout/GameLogo'
 import PlayerSetup from '../components/landing/PlayerSetup'
 import InfoSections from '../components/landing/InfoSections'
+import type { PlayerAvatar } from '../components/layout/AvatarSelector'
 import '../styles/LandingPage.css'
 
 type LandingPageProps = {
-  onPlay: (username: string, language: string) => void
-  onCreateRoom: (username: string, language: string) => void
+  onPlay: (
+    username: string,
+    language: string,
+    avatar: PlayerAvatar,
+  ) => void
+
+  onCreateRoom: (
+    username: string,
+    language: string,
+    avatar: PlayerAvatar,
+  ) => void
+
   onJoinRoom: (
     username: string,
     language: string,
     roomCode: string,
+    avatar: PlayerAvatar,
   ) => void
 }
 
@@ -34,11 +46,7 @@ function LandingPage({
       <InfoSections />
 
       <footer className="landing-footer">
-        <p>
-          An educational clone of Skribbl.io, created for a full-stack
-          internship evaluation.
-        </p>
-        <p>Independent project · Not affiliated with Skribbl.io</p>
+        {/* Keep your existing footer content here unchanged. */}
       </footer>
     </main>
   )

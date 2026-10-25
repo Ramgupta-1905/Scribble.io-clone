@@ -5,6 +5,8 @@ import '../styles/GamePage.css'
 import GameHeader from '../components/game/GameHeader'
 import GameStatus from '../components/game/GameStatus'
 import PlayerList from '../components/game/PlayerList'
+import { PixelAvatar } from '../components/layout/AvatarSelector'
+import { DEFAULT_PLAYER_AVATAR } from '../components/layout/AvatarSelector'
 import DrawingCanvas, {
   redrawDrawingCanvas,
 } from '../components/game/DrawingCanvas'
@@ -14,11 +16,7 @@ import ChatPanel from '../components/game/ChatPanel'
 import SettingsDrawer from '../components/game/SettingsDrawer'
 import WordChoicePanel from '../components/game/WordChoicePanel'
 
-import {
-  initialMessages,
-  settingOptions,
-} from '../components/game/GameTypes'
-
+import { initialMessages, settingOptions } from '../components/game/GameTypes'
 import type {
   ChatMessage,
   DrawingStroke,
@@ -68,13 +66,24 @@ type ServerMessage = {
   type: string
   timestamp?: number
 }
-
 type ServerStroke = {
   color?: string
   size?: number
   width?: number
   tool?: 'pencil' | 'eraser'
   points?: Array<{ x: number; y: number }>
+}
+
+function normalizeStroke(stroke: ServerStroke): DrawingStroke {
+  return {
+    color: stroke.color ?? '#000000',
+    width: stroke.width ?? stroke.size ?? 4,
+    tool: stroke.tool === 'eraser' ? 'eraser' : 'pencil',
+    points: (stroke.points ?? []).map((point) => ({
+      x: Number(point.x) || 0,
+      y: Number(point.y) || 0,
+    })),
+  }
 }
 
 function getInitialSettings(room: GameRoom | null) {
@@ -93,8 +102,7 @@ function getSetting(
     'Draw Time': ['drawtime', 'drawTime'],
     'Word Count': ['wordCount', 'wordcount'],
     Hints: ['hints'],
-    'Max Players': ['maxPlayers', 'maxplayers', 'players'],
-    'Game Mode': ['gameMode', 'wordMode'],
+    'Max Players': ['maxPlayers', 'maxplayers'],
   }
 
   if (settings[name] !== undefined) return settings[name]
@@ -113,18 +121,6 @@ function toStrokePoint(payload: DrawingPayload) {
   }
 }
 
-function normalizeStroke(stroke: ServerStroke): DrawingStroke {
-  return {
-    color: stroke.color ?? '#000000',
-    width: stroke.width ?? stroke.size ?? 4,
-    tool: stroke.tool === 'eraser' ? 'eraser' : 'pencil',
-    points: (stroke.points ?? []).map((point) => ({
-      x: Number(point.x) || 0,
-      y: Number(point.y) || 0,
-    })),
-  }
-}
-
 export default function GamePage({
   username,
   language,
@@ -137,7 +133,6 @@ export default function GamePage({
 }: GamePageProps) {
   const [guess, setGuess] = useState('')
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages)
-
   const [hasStarted, setHasStarted] = useState(false)
   const [isChoosingWord, setIsChoosingWord] = useState(false)
   const [hasRoundEnded, setHasRoundEnded] = useState(false)
@@ -147,22 +142,19 @@ export default function GamePage({
 
   const [customWords, setCustomWords] = useState('')
   const [useCustomWordsOnly, setUseCustomWordsOnly] = useState(false)
-
   const [settings, setSettings] = useState<Record<string, string>>(
     () => getInitialSettings(room),
   )
 
   const [timeLeft, setTimeLeft] = useState(0)
   const [serverDeadline, setServerDeadline] = useState<number | null>(null)
-
   const [drawingTool, setDrawingTool] =
     useState<'pencil' | 'eraser'>('pencil')
   const [drawingColor, setDrawingColor] = useState('#000000')
   const [canvasBackground, setCanvasBackground] = useState('#ffffff')
   const [brushSize, setBrushSize] = useState(4)
   const [strokes, setStrokes] = useState<DrawingStroke[]>([])
-  const [winner, setWinner] = useState<Player | null>(null)
-  const [finalLeaderboard, setFinalLeaderboard] = useState<Player[]>([])
+
   const [revealedLetters, setRevealedLetters] = useState(0)
   const [hasGuessedCorrectly, setHasGuessedCorrectly] = useState(false)
   const [selectedWord, setSelectedWord] = useState('')
@@ -170,16 +162,21 @@ export default function GamePage({
   const [roundNumber, setRoundNumber] = useState(1)
   const [drawerId, setDrawerId] = useState<string | null>(null)
   const [wordLength, setWordLength] = useState(0)
+  const [score, setScore] = useState(0)
+
+  const [gamePlayers, setGamePlayers] = useState<Player[]>(() =>
+    room?.players.map((player) => ({ ...player })) ?? [],
+  )
 
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const activeStrokeRef = useRef<DrawingStroke | null>(null)
   const isDrawingRef = useRef(false)
 
-  const currentPlayer = room?.players.find(
+  const currentPlayer = gamePlayers.find(
     (player) => player.id === socket.id,
   )
 
-  const currentDrawer = room?.players.find(
+  const currentDrawer = gamePlayers.find(
     (player) => player.id === drawerId,
   )
 
@@ -208,14 +205,14 @@ export default function GamePage({
     const canvas = canvasRef.current
     if (!canvas) return
 
-    const observer = new ResizeObserver(() => redrawCanvas())
+    const observer = new ResizeObserver(redrawCanvas)
     observer.observe(canvas)
     redrawCanvas()
 
     return () => observer.disconnect()
   }, [redrawCanvas])
 
-  // Receive room updates, game state, drawing events and chat messages.
+  // Receive room changes, game state, chat, and drawing from the server.
   useEffect(() => {
     if (!room) return
 
@@ -228,53 +225,20 @@ export default function GamePage({
       if (payload.code !== room.code) return
 
       if (payload.players) {
-        // Preserve server order because it determines turn order.
-        setGamePlayersFromServer(payload.players)
+        setGamePlayers(
+          payload.players.map((player, index) => ({
+            ...player,
+            rank: index + 1,
+          })),
+        )
       }
 
-      if (payload.settings) {
-        setSettings((current) => ({
-          ...current,
-          'Max Players': String(
-            payload.settings?.maxPlayers ??
-              payload.settings?.players ??
-              current['Max Players'] ??
-              '8',
-          ),
-          'Draw Time': String(
-            payload.settings?.drawTime ??
-              payload.settings?.drawtime ??
-              current['Draw Time'] ??
-              '80',
-          ),
-          Rounds: String(
-            payload.settings?.rounds ?? current.Rounds ?? '3',
-          ),
-          'Word Count': String(
-            payload.settings?.wordCount ??
-              current['Word Count'] ??
-              '3',
-          ),
-          Hints: Number(
-            payload.settings?.hints ?? 2,
-          ) === 0 ? 'Off' : 'On',
-          'Game Mode': String(
-            payload.settings?.gameMode ??
-              current['Game Mode'] ??
-              'Normal',
-          ),
-        }))
-      }
-
-      if (payload.status === 'playing' || payload.status === 'choosing') {
+      if (payload.status === 'playing') {
         setHasStarted(true)
         setGameFinished(false)
       } else if (payload.status === 'finished') {
         setHasStarted(false)
         setGameFinished(true)
-      } else if (payload.status === 'lobby') {
-        setHasStarted(false)
-        setGameFinished(false)
       }
     }
 
@@ -282,25 +246,36 @@ export default function GamePage({
       if (payload.code && payload.code !== room.code) return
 
       if (payload.players) {
-        setGamePlayersFromServer(payload.players)
+        setGamePlayers(
+          payload.players.map((player, index) => ({
+            ...player,
+            rank: index + 1,
+          })),
+        )
       }
 
-      if (payload.round !== undefined) setRoundNumber(payload.round)
+      if (payload.round !== undefined) {
+        setRoundNumber(payload.round)
+      }
 
-      if (payload.drawerId !== undefined) setDrawerId(payload.drawerId)
+      if (payload.drawerId !== undefined) {
+        setDrawerId(payload.drawerId)
+      }
 
       if (payload.deadline !== undefined) {
         setServerDeadline(payload.deadline)
       }
 
-      if (payload.timeLeft !== undefined) setTimeLeft(payload.timeLeft)
+      if (payload.timeLeft !== undefined) {
+        setTimeLeft(payload.timeLeft)
+      }
 
       if (payload.wordLength !== undefined) {
         setWordLength(payload.wordLength)
       }
 
-      if (payload.word !== undefined) {
-        setSelectedWord(payload.word ?? '')
+      if (payload.word) {
+        setSelectedWord(payload.word)
       }
 
       if (payload.hasGuessedCorrectly !== undefined) {
@@ -311,10 +286,7 @@ export default function GamePage({
         setHasStarted(
           ['choosing', 'playing', 'roundEnded'].includes(payload.phase),
         )
-        setIsChoosingWord(
-          payload.phase === 'choosing' &&
-            payload.drawerId === socket.id,
-        )
+        setIsChoosingWord(payload.phase === 'choosing' && payload.drawerId === socket.id)
         setHasRoundEnded(payload.phase === 'roundEnded')
         setGameFinished(payload.phase === 'finished')
       }
@@ -333,8 +305,6 @@ export default function GamePage({
       setIsChoosingWord(payload.drawerId === socket.id)
       setHasRoundEnded(false)
       setGameFinished(false)
-      setWinner(null)
-      setFinalLeaderboard([])
       setHasGuessedCorrectly(false)
       setSelectedWord('')
       setWordLength(0)
@@ -361,6 +331,7 @@ export default function GamePage({
     }) => {
       if (payload.drawerId) setDrawerId(payload.drawerId)
 
+      // The server deliberately sends null to players who are not drawing.
       if (payload.word) {
         setSelectedWord(payload.word)
         setWordLength(payload.word.replace(/\s/g, '').length)
@@ -370,7 +341,6 @@ export default function GamePage({
       setIsChoosingWord(false)
       setHasRoundEnded(false)
       setHasGuessedCorrectly(false)
-      setRevealedLetters(0)
     }
 
     const handleChatMessage = (payload: ServerMessage) => {
@@ -380,28 +350,17 @@ export default function GamePage({
       ])
     }
 
-    
-const handleGuessResult = (payload: {
-  correct: boolean
-  playerId: string
-  playerName?: string
-  points?: number
-  word?: string
-}) => {
-  if (!payload.correct) return
-
-  // Show the correct word only to the player who guessed it.
-  if (payload.playerId === socket.id) {
-    setHasGuessedCorrectly(true)
-    setGuess('')
-
-    if (payload.word) {
-      setSelectedWord(payload.word)
-      setWordLength(payload.word.replace(/\s/g, '').length)
+    const handleGuessResult = (payload: {
+      correct: boolean
+      playerId: string
+      points?: number
+    }) => {
+      if (payload.correct && payload.playerId === socket.id) {
+        setHasGuessedCorrectly(true)
+        setGuess('')
+        setScore((current) => current + (payload.points ?? 0))
+      }
     }
-  }
-}
-
 
     const handleRoundEnd = (payload: {
       word: string
@@ -413,50 +372,47 @@ const handleGuessResult = (payload: {
       setWordLength(payload.word.replace(/\s/g, '').length)
       setTimeLeft(0)
       setServerDeadline(null)
-      activeStrokeRef.current = null
-      isDrawingRef.current = false
 
-      if (payload.scores) setGamePlayersFromServer(payload.scores)
+      if (payload.scores) {
+        setGamePlayers(
+          payload.scores.map((player, index) => ({
+            ...player,
+            rank: index + 1,
+          })),
+        )
+      }
     }
 
     const handleGameOver = (payload: {
-  winner: Player | null
-  leaderboard?: Player[]
-}) => {
-  const finalWinner =
-    payload.winner ??
-    [...(payload.leaderboard ?? [])].sort(
-      (a, b) => b.points - a.points,
-    )[0] ??
-    null
+      winner: Player | null
+      leaderboard?: Player[]
+    }) => {
+      setGameFinished(true)
+      setHasStarted(false)
+      setIsChoosingWord(false)
+      setHasRoundEnded(false)
+      setTimeLeft(0)
+      setServerDeadline(null)
 
-  setWinner(finalWinner)
-  setFinalLeaderboard(
-    [...(payload.leaderboard ?? (finalWinner ? [finalWinner] : []))]
-      .sort((a, b) => b.points - a.points)
-      .slice(0, 3),
-  )
-  setGameFinished(true)
-  setHasStarted(false)
-  setIsChoosingWord(false)
-  setHasRoundEnded(false)
-  setTimeLeft(0)
-  setServerDeadline(null)
+      if (payload.leaderboard) {
+        setGamePlayers(
+          payload.leaderboard.map((player, index) => ({
+            ...player,
+            rank: index + 1,
+          })),
+        )
+      }
 
-  if (payload.leaderboard) {
-    setGamePlayersFromServer(payload.leaderboard)
-  }
-
-  setMessages((current) => [
-    ...current,
-    {
-      text: finalWinner
-        ? `Game over! Winner: ${finalWinner.name} with ${finalWinner.points} points.`
-        : 'Game over!',
-      type: 'system',
-    },
-  ])
-}
+      setMessages((current) => [
+        ...current,
+        {
+          text: payload.winner
+            ? `Game over! Winner: ${payload.winner.name} with ${payload.winner.points} points.`
+            : 'Game over!',
+          type: 'system',
+        },
+      ])
+    }
 
     const handleDrawingStart = (payload: DrawingPayload) => {
       const point = toStrokePoint(payload)
@@ -469,13 +425,15 @@ const handleGuessResult = (payload: {
       }
 
       isDrawingRef.current = true
-      redrawCanvas()
+
+      setStrokes((current) => [...current])
     }
 
     const handleDrawingMove = (payload: DrawingPayload) => {
-      if (!activeStrokeRef.current) return
+      const stroke = activeStrokeRef.current
+      if (!stroke) return
 
-      activeStrokeRef.current.points.push(toStrokePoint(payload))
+      stroke.points.push(toStrokePoint(payload))
       redrawCanvas()
     }
 
@@ -496,16 +454,18 @@ const handleGuessResult = (payload: {
     }
 
     const handleDrawUndo = () => {
-      // The server broadcasts undo to every client, including the drawer.
       setStrokes((current) => current.slice(0, -1))
-      activeStrokeRef.current = null
-      isDrawingRef.current = false
     }
 
     const handleError = (payload: { message?: string }) => {
       setStartError(payload.message || 'The server rejected that action.')
     }
+    const handleDrawHistory = (payload: { strokes: ServerStroke[] }) => {
+  activeStrokeRef.current = null
+  isDrawingRef.current = false
 
+  setStrokes((payload.strokes ?? []).map(normalizeStroke))
+}
     socket.on('room_state', handleRoomState)
     socket.on('game_state', handleGameState)
     socket.on('round_start', handleRoundStart)
@@ -521,6 +481,10 @@ const handleGuessResult = (payload: {
     socket.on('canvas_clear', handleCanvasClear)
     socket.on('draw_undo', handleDrawUndo)
     socket.on('game_error', handleError)
+    socket.on('draw_history', handleDrawHistory)
+
+    // Request a fresh snapshot after listeners are registered.
+    socket.emit('request_game_sync')
 
     return () => {
       socket.off('room_state', handleRoomState)
@@ -538,26 +502,11 @@ const handleGuessResult = (payload: {
       socket.off('canvas_clear', handleCanvasClear)
       socket.off('draw_undo', handleDrawUndo)
       socket.off('game_error', handleError)
+      socket.off('draw_history', handleDrawHistory)
     }
   }, [room?.code, redrawCanvas])
 
-  function setGamePlayersFromServer(players: Player[]) {
-    // Do not sort this list by points: the server's player order controls turns.
-    setGamePlayers(
-      players.map((player, index) => ({
-        ...player,
-        rank: index + 1,
-      })),
-    )
-  }
-
-  const [gamePlayers, setGamePlayers] = useState<Player[]>(() =>
-    room?.players.map((player, index) => ({
-      ...player,
-      rank: index + 1,
-    })) ?? [],
-  )
-
+  // Synchronize the room props supplied by App.tsx.
   useEffect(() => {
     if (!room) return
 
@@ -570,7 +519,8 @@ const handleGuessResult = (payload: {
     )
   }, [room])
 
-  // Countdown uses the authoritative server deadline.
+  // All clients calculate the countdown from the same server deadline.
+  // This avoids each browser drifting by one second per local interval.
   useEffect(() => {
     if (
       !hasStarted ||
@@ -583,14 +533,12 @@ const handleGuessResult = (payload: {
     }
 
     const updateCountdown = () => {
-      setTimeLeft(
-        Math.max(0, Math.ceil((serverDeadline - Date.now()) / 1000)),
-      )
+      const remaining = Math.max(0, Math.ceil((serverDeadline - Date.now()) / 1000))
+      setTimeLeft(remaining)
     }
 
     updateCountdown()
     const timer = window.setInterval(updateCountdown, 200)
-
     return () => window.clearInterval(timer)
   }, [
     hasStarted,
@@ -600,7 +548,7 @@ const handleGuessResult = (payload: {
     serverDeadline,
   ])
 
-  // Hints reveal letters only for guessing players.
+  // Reveal letters gradually for the local display.
   useEffect(() => {
     if (
       !hasStarted ||
@@ -615,28 +563,14 @@ const handleGuessResult = (payload: {
       return
     }
 
-    const hintsEnabled =
-      getSetting(settings, 'Hints', 'On').toLowerCase() !== 'off'
-
+    const hintsEnabled = getSetting(settings, 'Hints', 'On').toLowerCase() !== 'off'
     if (!hintsEnabled) return
-
-    const configuredHints = Math.max(
-      0,
-      Number(getSetting(settings, 'Hints', '2')) || 0,
-    )
-
-    if (configuredHints === 0) return
-
-    const interval = Math.max(
-      5000,
-      (drawDuration * 1000) / (configuredHints + 1),
-    )
 
     const timer = window.setInterval(() => {
       setRevealedLetters((current) =>
         Math.min(current + 1, wordLength),
       )
-    }, interval)
+    }, Math.max(5000, (drawDuration * 1000) / 4))
 
     return () => window.clearInterval(timer)
   }, [
@@ -683,23 +617,11 @@ const handleGuessResult = (payload: {
     }
 
     if (useCustomWordsOnly && customList.length < 10) {
-      setStartError(
-        'Enter at least 10 custom words or turn off custom-words-only mode.',
-      )
+      setStartError('Enter at least 10 custom words or turn off custom-words-only mode.')
       return
     }
 
-    if (!socket.connected) {
-      setStartError('You are disconnected from the game server. Reconnect and try again.')
-      return
-    }
-
-    socket.emit('start_game', {
-      settings: toServerSettings(settings),
-      customWords: customList,
-      customWordsOnly: useCustomWordsOnly,
-    })
-
+    socket.emit('start_game')
     onCloseSettings()
   }
 
@@ -775,9 +697,8 @@ const handleGuessResult = (payload: {
 
     activeStrokeRef.current = null
     isDrawingRef.current = false
-
-    // Let the server broadcast the undo once to every client.
     socket.emit('draw_undo')
+    setStrokes((current) => current.slice(0, -1))
   }
 
   const clearCanvas = () => {
@@ -786,12 +707,11 @@ const handleGuessResult = (payload: {
     activeStrokeRef.current = null
     isDrawingRef.current = false
     socket.emit('canvas_clear')
+    setStrokes([])
+    setCanvasBackground('#ffffff')
   }
 
-  const isShowingRoomSettings =
-    isPrivateRoom &&
-    !hasStarted &&
-    Boolean(currentPlayer?.isHost)
+  const isShowingRoomSettings = isPrivateRoom && !hasStarted
 
   const isChatDisabled =
     !hasStarted ||
@@ -803,9 +723,7 @@ const handleGuessResult = (payload: {
 
   const wordHint =
     hasStarted && !isChoosingWord && !gameFinished
-      ? hasRoundEnded ||
-        isCurrentPlayerDrawing ||
-        hasGuessedCorrectly
+      ? hasRoundEnded || isCurrentPlayerDrawing || hasGuessedCorrectly
         ? selectedWord
         : selectedWord
           ? createHint(selectedWord, revealedLetters)
@@ -840,35 +758,50 @@ const handleGuessResult = (payload: {
         </p>
       )}
 
-      {gameFinished && (
-        <div
-          className="winner-overlay"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="winner-title"
-        >
-          <div className="winner-results">
-            <h2 id="winner-title">Result</h2>
-            <div className="winner-podium">
-              {(finalLeaderboard.length > 0
-                ? finalLeaderboard
-                : winner
-                  ? [winner]
-                  : []
-              ).map((player, index) => (
-                <div className={`podium-player podium-place-${index + 1}`} key={player.id}>
-                  <div className="podium-avatar" aria-hidden="true">
-                    {player.face || '☺'}
-                  </div>
-                  <div className="podium-rank">#{index + 1}</div>
-                  <p className="podium-name">{player.name}</p>
-                  <p className="podium-score">{player.points} points</p>
-                </div>
-              ))}
+      
+{gameFinished && (
+  <div className="winner-overlay" role="dialog" aria-modal="true">
+    <div className="winner-card">
+      <p className="winner-eyebrow">GAME COMPLETED</p>
+      <h2>Final Results</h2>
+      <div className="winner-podium">
+        {[...gamePlayers]
+          .sort((a, b) => b.points - a.points)
+          .slice(0, 3)
+          .map((player, index) => (
+            <div
+              className={`podium-player podium-place-${index + 1}`}
+              key={player.id}
+            >
+              <div className="podium-rank">
+                {['🥇 1st', '🥈 2nd', '🥉 3rd'][index]}
+              </div>
+
+              <PixelAvatar
+                color={player.color || DEFAULT_PLAYER_AVATAR.color}
+                eye={player.eye || DEFAULT_PLAYER_AVATAR.eye}
+                mouth={player.mouth || DEFAULT_PLAYER_AVATAR.mouth}
+                size={56}
+                className="podium-avatar"
+              />
+
+              <p className="podium-name">{player.name}</p>
+              <p className="podium-score">{player.points} points</p>
             </div>
-          </div>
-        </div>
-      )}
+          ))}
+      </div>
+
+      <button
+        type="button"
+        className="winner-lobby-button"
+        onClick={() => window.location.assign('/')}
+      >
+        Return to Lobby
+      </button>
+    </div>
+  </div>
+)}
+
 
       <section className="game-layout">
         <PlayerList
@@ -893,7 +826,7 @@ const handleGuessResult = (payload: {
               startError={startError}
               roomMemberCount={room?.players.length ?? 1}
               roomCode={room?.code}
-              isHost={Boolean(currentPlayer?.isHost)}
+              isHost={Boolean(room && room.hostId === socket.id)}
             />
           ) : (
             <>
@@ -961,23 +894,13 @@ const handleGuessResult = (payload: {
         />
       </section>
 
+      {hasStarted && (
+        <div className="local-score" aria-live="polite">
+          {username}'s score: {score}
+        </div>
+      )}
+
       {isSettingsOpen && <SettingsDrawer onClose={onCloseSettings} />}
     </main>
   )
-}
-
-function toServerSettings(settings: Record<string, string>) {
-  const hints = settings.Hints ?? 'On'
-
-  return {
-    maxPlayers: Number(settings['Max Players'] ?? 8),
-    drawTime: Number(settings['Draw Time'] ?? 80),
-    rounds: Number(settings.Rounds ?? 3),
-    wordCount: Number(settings['Word Count'] ?? 3),
-    hints:
-      hints.toLowerCase() === 'off'
-        ? 0
-        : Math.max(1, Number(hints) || 2),
-    gameMode: settings['Game Mode'] ?? 'Normal',
-  }
 }

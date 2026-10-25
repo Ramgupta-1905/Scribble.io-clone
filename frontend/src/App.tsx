@@ -12,6 +12,7 @@ import LandingPage from './pages/LandingPage'
 import GamePage from './pages/GamePage'
 import type { GameRoom, Player } from './components/game/GameTypes'
 import { settingOptions } from './components/game/GameTypes'
+import type { PlayerAvatar } from './components/layout/AvatarSelector'
 import { socket } from './lib/socket'
 
 type SavedPlayer = {
@@ -25,6 +26,8 @@ type ServerPlayer = {
   points: number
   color: string
   face: string
+  eye?: PlayerAvatar['eye']
+  mouth?: PlayerAvatar['mouth']
   isHost: boolean
 }
 
@@ -156,24 +159,25 @@ function AppRoutes() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [error, setError] = useState('')
 
-  // Track route changes so leaving /game also leaves the server room.
   const previousPathRef = useRef(location.pathname)
 
-  useEffect(() => {
-    const previousPath = previousPathRef.current
-    previousPathRef.current = location.pathname
+  
+useEffect(() => {
+  const previousPath = previousPathRef.current
+  previousPathRef.current = location.pathname
 
-    if (previousPath === '/game' && location.pathname !== '/game') {
-      if (socket.connected) {
-        socket.emit('leave_room')
-      }
-
-      setRoom(null)
-      localStorage.removeItem(SESSION_STORAGE_KEY)
-      setIsSettingsOpen(false)
-      setError('')
+  if (previousPath === '/game' && location.pathname !== '/game') {
+    if (socket.connected) {
+      socket.emit('leave_room')
     }
-  }, [location.pathname])
+
+    setRoom(null)
+    localStorage.removeItem(SESSION_STORAGE_KEY)
+    setIsSettingsOpen(false)
+    setError('')
+  }
+}, [location.pathname])
+
 
   const savePlayerDetails = useCallback(
     (name: string, selectedLanguage: string) => {
@@ -196,37 +200,68 @@ function AppRoutes() {
   )
 
   useEffect(() => {
-    const onCreated = (payload: { room: ServerRoom; sessionToken?: string }) => {
+    const onCreated = (payload: {
+      room: ServerRoom
+      sessionToken?: string
+    }) => {
       if (payload.sessionToken) {
-        localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({ token: payload.sessionToken, roomCode: payload.room.code }))
+        localStorage.setItem(
+          SESSION_STORAGE_KEY,
+          JSON.stringify({
+            token: payload.sessionToken,
+            roomCode: payload.room.code,
+          }),
+        )
       }
+
       console.log('[Room] Created:', payload.room.code)
-
       setRoom(toGameRoom(payload.room))
       setError('')
       setIsSettingsOpen(false)
       navigate(`/game?room=${payload.room.code}`)
     }
 
-    const onJoined = (payload: { room: ServerRoom; sessionToken?: string }) => {
+    const onJoined = (payload: {
+      room: ServerRoom
+      sessionToken?: string
+    }) => {
       if (payload.sessionToken) {
-        localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({ token: payload.sessionToken, roomCode: payload.room.code }))
+        localStorage.setItem(
+          SESSION_STORAGE_KEY,
+          JSON.stringify({
+            token: payload.sessionToken,
+            roomCode: payload.room.code,
+          }),
+        )
       }
+
       console.log('[Room] Joined:', payload.room.code)
-
       setRoom(toGameRoom(payload.room))
       setError('')
       setIsSettingsOpen(false)
       navigate(`/game?room=${payload.room.code}`)
     }
 
-    const onSessionRestored = (payload: { room: ServerRoom; sessionToken?: string }) => {
+    const onSessionRestored = (payload: {
+      room: ServerRoom
+      sessionToken?: string
+    }) => {
       if (payload.sessionToken) {
-        localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({ token: payload.sessionToken, roomCode: payload.room.code }))
+        localStorage.setItem(
+          SESSION_STORAGE_KEY,
+          JSON.stringify({
+            token: payload.sessionToken,
+            roomCode: payload.room.code,
+          }),
+        )
       }
+
       setRoom(toGameRoom(payload.room))
       setError('')
-      if (location.pathname !== '/game') navigate(`/game?room=${payload.room.code}`)
+
+      if (location.pathname !== '/game') {
+        navigate(`/game?room=${payload.room.code}`)
+      }
     }
 
     const onSessionRestoreFailed = (payload: { message?: string }) => {
@@ -236,11 +271,7 @@ function AppRoutes() {
 
     const onRoomState = (serverRoom: ServerRoom) => {
       setRoom((currentRoom) => {
-        // Do not let an old room update replace the active room.
-        if (
-          currentRoom &&
-          currentRoom.code !== serverRoom.code
-        ) {
+        if (currentRoom && currentRoom.code !== serverRoom.code) {
           return currentRoom
         }
 
@@ -271,7 +302,7 @@ function AppRoutes() {
       socket.off('room_state', onRoomState)
       socket.off('game_error', onError)
     }
-  }, [navigate])
+  }, [navigate, location.pathname])
 
   useEffect(() => {
     if (!socket.connected) {
@@ -283,24 +314,50 @@ function AppRoutes() {
   useEffect(() => {
     const attemptRestore = () => {
       if (location.pathname !== '/game') return
-      const urlCode = new URLSearchParams(location.search).get('room')?.toUpperCase()
+
+      const urlCode = new URLSearchParams(location.search)
+        .get('room')
+        ?.toUpperCase()
+
       if (!urlCode) return
+
       try {
         const raw = localStorage.getItem(SESSION_STORAGE_KEY)
         if (!raw) return
-        const saved = JSON.parse(raw) as { token?: string; roomCode?: string }
-        if (!saved.token || !saved.roomCode || saved.roomCode.toUpperCase() !== urlCode) return
-        // If the room is already loaded, this is a route change, not a refresh.
+
+        const saved = JSON.parse(raw) as {
+          token?: string
+          roomCode?: string
+        }
+
+        if (
+          !saved.token ||
+          !saved.roomCode ||
+          saved.roomCode.toUpperCase() !== urlCode
+        ) {
+          return
+        }
+
         if (room?.code === urlCode) return
-        socket.emit('restore_session', { token: saved.token, roomCode: saved.roomCode })
+
+        socket.emit('restore_session', {
+          token: saved.token,
+          roomCode: saved.roomCode,
+        })
       } catch {
         localStorage.removeItem(SESSION_STORAGE_KEY)
       }
     }
 
     socket.on('connect', attemptRestore)
-    if (socket.connected) attemptRestore()
-    return () => { socket.off('connect', attemptRestore) }
+
+    if (socket.connected) {
+      attemptRestore()
+    }
+
+    return () => {
+      socket.off('connect', attemptRestore)
+    }
   }, [location.pathname, location.search, room?.code])
 
   // Keep local room state aligned with the room code in the URL.
@@ -315,10 +372,7 @@ function AppRoutes() {
     }
 
     setRoom((currentRoom) => {
-      if (
-        currentRoom &&
-        currentRoom.code !== code.toUpperCase()
-      ) {
+      if (currentRoom && currentRoom.code !== code.toUpperCase()) {
         return null
       }
 
@@ -329,6 +383,7 @@ function AppRoutes() {
   const openGame = (
     name: string,
     selectedLanguage: string,
+    avatar: PlayerAvatar,
   ) => {
     const trimmedName = name.trim()
 
@@ -349,15 +404,16 @@ function AppRoutes() {
 
     console.log('[Quick Play] Sending request:', trimmedName)
 
-    // Server chooses a public room or creates one when needed.
     socket.emit('quick_play', {
       playerName: trimmedName,
+      avatar,
     })
   }
 
   const createRoom = (
     name: string,
     selectedLanguage: string,
+    avatar: PlayerAvatar,
   ) => {
     const trimmedName = name.trim()
 
@@ -390,6 +446,7 @@ function AppRoutes() {
       settings: toServerSettings(settings),
       customWords: [],
       customWordsOnly: false,
+      avatar,
     })
   }
 
@@ -397,6 +454,7 @@ function AppRoutes() {
     name: string,
     selectedLanguage: string,
     roomCode: string,
+    avatar: PlayerAvatar,
   ) => {
     const trimmedName = name.trim()
     const code = roomCode.trim().toUpperCase()
@@ -420,12 +478,11 @@ function AppRoutes() {
     socket.emit('join_room', {
       playerName: trimmedName,
       code,
+      avatar,
     })
   }
 
-  const updateRoomSettings = (
-    settings: Record<string, string>,
-  ) => {
+  const updateRoomSettings = (settings: Record<string, string>) => {
     if (!room) return
 
     const currentPlayer = room.players.find(

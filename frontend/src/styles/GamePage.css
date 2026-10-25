@@ -147,6 +147,14 @@
   border: none;
   border-radius: 4px;
 }
+.player-list-pixel-avatar {
+  display: block;
+  width: 30px !important;
+  height: auto !important;
+  max-width: 30px;
+  max-height: 35px;
+  flex-shrink: 0;
+}
 
 .player-row {
   box-sizing: border-box;

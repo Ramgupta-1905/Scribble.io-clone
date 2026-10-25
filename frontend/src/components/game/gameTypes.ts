@@ -1,4 +1,9 @@
 
+import type {
+  EyeStyle,
+  MouthStyle,
+} from '../layout/AvatarSelector'
+
 export type ChatMessage = {
   text: string
   type: string
@@ -21,7 +26,9 @@ export type Player = {
   name: string
   points: number
   color: string
-  face: string
+  eye?: EyeStyle
+  mouth?: MouthStyle
+  face?: string
   rank: number
   isHost: boolean
 }
@@ -38,20 +45,87 @@ export type GameRoom = {
 }
 
 export const players: Player[] = [
-  { id: '1', name: 'Girl', points: 120, color: '#f2b5a7', face: '👩', rank: 1, isHost: true },
-  { id: '2', name: 'vxz', points: 90, color: '#c8a5e8', face: '😎', rank: 2, isHost: false },
-  { id: '3', name: 'son of a', points: 70, color: '#f4d06f', face: '😄', rank: 3, isHost: false },
-  { id: '4', name: 'Keerthana', points: 50, color: '#8ecae6', face: '😊', rank: 4, isHost: false },
-  { id: '5', name: 'wonheelLLIT', points: 30, color: '#b7e4c7', face: '🐰', rank: 5, isHost: false },
-  { id: '6', name: 'dhuruv', points: 0, color: '#ffb703', face: '😎', rank: 6, isHost: false },
-  { id: '7', name: 'Um', points: 0, color: '#e5989b', face: '🙂', rank: 7, isHost: false },
+  {
+    id: '1',
+    name: 'Girl',
+    points: 120,
+    color: '#f2b5a7',
+    face: '👩',
+    rank: 1,
+    isHost: true,
+  },
+  {
+    id: '2',
+    name: 'vxz',
+    points: 90,
+    color: '#c8a5e8',
+    face: '😎',
+    rank: 2,
+    isHost: false,
+  },
+  {
+    id: '3',
+    name: 'son of a',
+    points: 70,
+    color: '#f4d06f',
+    face: '😄',
+    rank: 3,
+    isHost: false,
+  },
+  {
+    id: '4',
+    name: 'Keerthana',
+    points: 50,
+    color: '#8ecae6',
+    face: '😊',
+    rank: 4,
+    isHost: false,
+  },
+  {
+    id: '5',
+    name: 'wonheelLLIT',
+    points: 30,
+    color: '#b7e4c7',
+    face: '🐰',
+    rank: 5,
+    isHost: false,
+  },
+  {
+    id: '6',
+    name: 'dhuruv',
+    points: 0,
+    color: '#ffb703',
+    face: '😎',
+    rank: 6,
+    isHost: false,
+  },
+  {
+    id: '7',
+    name: 'Um',
+    points: 0,
+    color: '#e5989b',
+    face: '🙂',
+    rank: 7,
+    isHost: false,
+  },
 ]
 
 export const initialMessages: ChatMessage[] = [
-  { text: 'Welcome to the room!', type: 'system' },
+  {
+    text: 'Welcome to the room!',
+    type: 'system',
+  },
 ]
 
-export const settingOptions = [
+export type SettingOption = {
+  name: string
+  label: string
+  icon: string
+  initial: string
+  options: string[]
+}
+
+export const settingOptions: SettingOption[] = [
   {
     name: 'Max Players',
     label: 'Max Players',
