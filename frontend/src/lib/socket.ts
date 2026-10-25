@@ -12,7 +12,7 @@ export const socket = io(SERVER_URL, {
   reconnectionDelay: 1000,
   reconnectionDelayMax: 5000,
   timeout: 20000,
-  transports: ['websocket', 'polling'],
+  transports: ['polling'],
 })
 
 socket.on('connect', () => {
