@@ -1,25 +1,32 @@
-# 🎨 Skribbl.io Clone
+# 🎨 Skribbl.io Clone — Real-Time Multiplayer Drawing Game
 
-A full-stack **Skribbl.io clone** inspired by the original online drawing and guessing game. This project recreates the core multiplayer experience, allowing players to join rooms, draw secret words, guess what other players are drawing, and compete for the highest score.
+A browser-based multiplayer drawing and guessing game inspired by [skribbl.io](https://skribbl.io/). Players can join game rooms, take turns drawing a secret word, submit guesses through chat, and compete to earn points.
 
-🌐 **Live Demo:** [Play Skribbl.io Clone](https://skribbl-clone-frontend-vla2.onrender.com)
+## 🚀 Live Demo
 
-> **Disclaimer:** This is an independent educational project inspired by Skribbl.io. It is not the official Skribbl.io application and is not affiliated with its original creators.
+**Play the game:** [Skribbl.io Clone](https://skribbl-clone-frontend-vla2.onrender.com)
+
+**Source Code:** [GitHub Repository](https://github.com/Ramgupta-1905/Scribble.io-clone)
+
+## 📌 Project Overview
+
+This project recreates the core experience of an online drawing and guessing game. It combines a React frontend with a Node.js backend and Socket.IO to manage multiplayer communication and game events in real time.
+
+The project was developed as part of a Full Stack Intern Assignment.
 
 ## ✨ Features
 
-- **Real-Time Multiplayer:** Play with other players using WebSockets.
-- **Room-Based Gameplay:** Create rooms and join games with friends.
-- **Interactive Drawing Canvas:** Draw with different colors, tools, and brush sizes.
-- **Word Selection:** Choose a secret word when it is your turn to draw.
-- **Live Word Hints:** Use hints to guess the secret word.
-- **Countdown Timer:** Guess correctly before the round ends.
-- **Scoring System:** Earn points for correct guesses.
-- **Multiple Rounds:** Play through rounds with rotating drawers.
-- **Real-Time Synchronization:** Keep game state and drawing events synchronized between players.
-- **Leaderboard:** Compare scores and identify the winner.
-- **Final Results:** View game results when the match finishes.
-- **Responsive Interface:** Play across different screen sizes.
+- **Multiplayer Rooms:** Create or join game rooms.
+- **Turn-Based Gameplay:** Players take turns selecting words and drawing.
+- **Interactive Drawing Canvas:** Draw using a browser-based HTML5 Canvas.
+- **Drawing Tools:** Pencil, multiple colors, adjustable brush size, and eraser.
+- **Real-Time Communication:** Socket.IO events synchronize game activity between connected players.
+- **Word Selection:** The drawer selects a secret word from available choices.
+- **Guessing and Chat:** Players submit guesses and receive game feedback.
+- **Scoring and Leaderboard:** Track player scores throughout the game.
+- **Round Timer:** Timed drawing rounds.
+- **Hints:** Display word-length or letter hints to help players guess.
+- **Responsive Interface:** A browser-based interface for accessing the game.
 
 ## 🛠️ Tech Stack
 
@@ -27,6 +34,7 @@ A full-stack **Skribbl.io clone** inspired by the original online drawing and gu
 - React
 - TypeScript
 - Vite
+- HTML5 Canvas API
 - CSS
 - Socket.IO Client
 
@@ -36,69 +44,99 @@ A full-stack **Skribbl.io clone** inspired by the original online drawing and gu
 - Socket.IO
 
 ### Deployment
-- Render Static Site
-- Render Web Service
+- Render — frontend and backend services
 
-## 🎮 How to Play
+## 🏗️ Architecture Overview
 
-1. Open the [live game](https://skribbl-clone-frontend-vla2.onrender.com).
-2. Create a room or join an existing room.
-3. Wait for the game to start.
-4. When it is your turn, select a word from the available options.
-5. Draw the selected word on the canvas.
-6. Other players try to guess the word before the timer runs out.
-7. Earn points for correct guesses and continue playing through the rounds.
-8. Check the final leaderboard to see the results.
+The application uses a client-server architecture.
 
-## 🚀 Run Locally
+### Frontend
+The React application manages the user interface, room interactions, drawing tools, chat, player information, and game state. The Canvas API captures and renders drawing strokes.
+
+### Backend
+The Node.js server manages rooms, player connections, turn order, word selection, guesses, scoring, and round progression.
+
+### Real-Time Communication
+Socket.IO enables event-based communication between the frontend and backend.
+
+Examples of drawing events include:
+
+- `draw_start` — begins a drawing stroke.
+- `draw_move` — sends drawing coordinates.
+- `draw_end` — finishes a stroke.
+- `game_state` — communicates the current game state.
+- `chat_message` — distributes chat messages.
+- `round_start` and `round_end` — communicate round transitions.
+
+### Typical Game Flow
+
+1. A player joins or creates a room.
+2. Players enter the game lobby.
+3. The drawer receives word choices and selects a word.
+4. The drawer draws on the canvas.
+5. Other players submit guesses.
+6. Correct guesses update the scores.
+7. The round ends and the game proceeds to the next turn.
+
+## 📁 Project Structure
+
+```text
+Scribble.io-clone/
+├── frontend/
+│   ├── src/
+│   │   ├── components/
+│   │   ├── pages/
+│   │   └── lib/
+│   ├── package.json
+│   └── vite.config.ts
+├── backend/
+│   ├── server.js
+│   └── package.json
+└── README.md
+```
+
+*The structure above is a simplified overview; individual files may vary.*
+
+## ⚙️ Run Locally
 
 ### Prerequisites
 
-- [Node.js](https://nodejs.org/)
-- npm
+- Node.js and npm
 - Git
 
-### 1. Clone the Repository
+### 1. Clone the repository
 
 ```bash
 git clone https://github.com/Ramgupta-1905/Scribble.io-clone.git
 cd Scribble.io-clone
 ```
 
-### 2. Set Up the Backend
+### 2. Start the backend
 
 ```bash
 cd backend
 npm install
-```
-
-Create a `.env` file inside the `backend` directory:
-
-```env
-PORT=3000
-FRONTEND_URL=http://localhost:5173
-```
-
-Start the backend:
-
-```bash
 npm start
 ```
 
-### 3. Set Up the Frontend
+Keep the backend terminal running.
 
-Open a separate terminal:
+### 3. Configure and start the frontend
+
+Open another terminal:
 
 ```bash
 cd frontend
 npm install
 ```
 
-Configure the backend URL in the frontend `.env` file using the environment variable expected by your source code. For example:
+Create a `.env` file inside the `frontend/` directory:
 
 ```env
 VITE_SERVER_URL=http://localhost:3000
 ```
+
+Replace `3000` with the port configured by your backend if it differs.
 
 Start the frontend:
 
@@ -106,61 +144,59 @@ Start the frontend:
 npm run dev
 ```
 
-Open the local URL shown in your terminal, usually `http://localhost:5173`.
+Open the local URL printed by Vite in your terminal.
 
-> **Note:** The environment variable names above are examples. Make sure they match the variables used in your actual frontend and backend code.
+## 🌐 Deployment Configuration
 
-## 📁 Project Structure
+The application is deployed on Render.
 
-```text
-Scribble.io-clone/
-├── backend/
-│   ├── server.js
-│   ├── package.json
-│   └── ...
-├── frontend/
-│   ├── src/
-│   │   ├── components/
-│   │   ├── pages/
-│   │   └── ...
-│   ├── package.json
-│   └── ...
-└── README.md
+| Service | URL |
+|---|---|
+| Frontend | https://skribbl-clone-frontend-vla2.onrender.com |
+| Backend | https://skribbl-clone-backend-kmz9.onrender.com |
+
+Configure the frontend environment variable in Render:
+
+```env
+VITE_SERVER_URL=https://skribbl-clone-backend-kmz9.onrender.com
 ```
 
-## 🌐 Deployment
+Configure the backend environment variable:
 
-The project is deployed on Render.
+```env
+FRONTEND_URL=https://skribbl-clone-frontend-vla2.onrender.com
+```
 
-- **Frontend:** [Skribbl.io Clone](https://skribbl-clone-frontend-vla2.onrender.com)
-- **Backend:** [Backend Service](https://skribbl-clone-backend-kmz9.onrender.com)
+Ensure the backend allows the deployed frontend origin and supports Socket.IO connections.
 
-The frontend communicates with the backend using Socket.IO to enable real-time multiplayer gameplay.
+## 🧠 Key Technical Concepts
 
-## 🧠 Key Learnings
+This project demonstrates practical use of:
 
-This project demonstrates practical experience with:
-
-- Building interactive applications with React and TypeScript.
-- Developing backend services with Node.js and Express.
-- Implementing real-time communication using Socket.IO.
-- Managing multiplayer game state on the server.
-- Synchronizing drawing events between players.
-- Handling timers, rounds, scores, and game results.
-- Configuring environment variables and deploying a full-stack application.
+- React components and state management
+- TypeScript for typed frontend development
+- HTML5 Canvas drawing operations
+- WebSocket-based real-time communication through Socket.IO
+- Event-driven client-server architecture
+- Room and player management
+- Turn-based game logic and score tracking
+- Environment variables and full-stack deployment
 
 ## 🔮 Future Improvements
 
-- Improve reconnection handling when players lose connectivity.
-- Add more drawing tools and canvas controls.
-- Improve mobile gameplay and drawing support.
-- Introduce additional game customization options.
-- Optimize real-time event handling for larger rooms.
+- Improve drawing synchronization and canvas recovery.
+- Make countdown and round transitions more reliable.
+- Improve cleanup of disconnected players.
+- Add additional word categories and game settings.
+- Improve reconnect handling and multiplayer testing.
+- Add automated tests for room management and game flow.
 
-## 📄 License
+## 👨‍💻 Author
 
-This project is intended for educational and learning purposes. A specific open-source license can be added if you decide to distribute the project under one.
+**Ram Gupta**
+
+- GitHub: [Ramgupta-1905](https://github.com/Ramgupta-1905)
 
 ---
 
-**Built with ❤️ using React, TypeScript, Node.js, and Socket.IO.**
+Built as a full-stack multiplayer game project to explore real-time web development, interactive canvas rendering, and event-driven communication.
