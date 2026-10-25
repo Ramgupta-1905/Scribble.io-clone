@@ -139,19 +139,48 @@ export default function DrawingCanvas({
   const handlePointerDown = (
     event: ReactPointerEvent<HTMLCanvasElement>,
   ) => {
-    if (!canDraw || !socket.connected || isDrawingRef.current) return
-    if (event.button !== 0 && event.pointerType === 'mouse') return
+    console.log('[DRAW DEBUG]', {
+      canDraw,
+      socketConnected: socket.connected,
+      isDrawing: isDrawingRef.current,
+      pointerType: event.pointerType,
+      button: event.button,
+    })
+
+    if (!canDraw) {
+      console.warn('[DRAW BLOCKED] canDraw is false')
+      return
+    }
+
+    if (!socket.connected) {
+      console.warn('[DRAW BLOCKED] Socket is disconnected')
+      return
+    }
+
+    if (isDrawingRef.current) {
+      console.warn('[DRAW BLOCKED] A stroke is already active')
+      return
+    }
+
+    if (event.button !== 0 && event.pointerType === 'mouse') {
+      console.warn('[DRAW BLOCKED] Not the primary mouse button')
+      return
+    }
 
     const canvas = event.currentTarget
     const context = canvas.getContext('2d')
-    if (!context) return
+
+    if (!context) {
+      console.warn('[DRAW BLOCKED] Canvas context unavailable')
+      return
+    }
 
     event.preventDefault()
 
     try {
       canvas.setPointerCapture(event.pointerId)
     } catch {
-      // Continue if pointer capture is unavailable.
+      console.warn('[DRAW DEBUG] Pointer capture unavailable')
     }
 
     const point = getPoint(event)
@@ -169,6 +198,13 @@ export default function DrawingCanvas({
     const ratio = window.devicePixelRatio || 1
     context.setTransform(ratio, 0, 0, ratio, 0, 0)
     drawStroke(context, stroke)
+
+    console.log('[DRAW DEBUG] Emitting draw_start', {
+      point,
+      color: stroke.color,
+      size: stroke.width,
+      tool: stroke.tool,
+    })
 
     socket.emit('draw_start', {
       x: point.x,
