@@ -535,32 +535,42 @@ const handleDrawingMove = (payload: DrawingPayload) => {
 
   // All clients calculate the countdown from the same server deadline.
   // This avoids each browser drifting by one second per local interval.
-  useEffect(() => {
-    if (
-      !hasStarted ||
-      isChoosingWord ||
-      hasRoundEnded ||
-      gameFinished ||
-      serverDeadline === null
-    ) {
-      return
-    }
+  
+useEffect(() => {
+  if (
+    !hasStarted ||
+    isChoosingWord ||
+    hasRoundEnded ||
+    gameFinished ||
+    serverDeadline === null
+  ) {
+    return
+  }
 
-    const updateCountdown = () => {
-      const remaining = Math.max(0, Math.ceil((serverDeadline - Date.now()) / 1000))
-      setTimeLeft(remaining)
-    }
+  const updateCountdown = () => {
+    const remaining = Math.max(
+      0,
+      Math.ceil((serverDeadline - Date.now()) / 1000),
+    )
 
-    updateCountdown()
-    const timer = window.setInterval(updateCountdown, 200)
-    return () => window.clearInterval(timer)
-  }, [
-    hasStarted,
-    isChoosingWord,
-    hasRoundEnded,
-    gameFinished,
-    serverDeadline,
-  ])
+    setTimeLeft((current) =>
+      current === remaining ? current : remaining,
+    )
+  }
+
+  updateCountdown()
+
+  const timer = window.setInterval(updateCountdown, 250)
+
+  return () => window.clearInterval(timer)
+}, [
+  hasStarted,
+  isChoosingWord,
+  hasRoundEnded,
+  gameFinished,
+  serverDeadline,
+])
+
 
   // Reveal letters gradually for the local display.
   useEffect(() => {
