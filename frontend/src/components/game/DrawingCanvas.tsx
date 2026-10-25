@@ -20,7 +20,7 @@ function drawStroke(
   context: CanvasRenderingContext2D,
   stroke: DrawingStroke,
 ) {
-  if (!stroke.points.length) return
+  if (stroke.points.length === 0) return
 
   context.save()
   context.lineCap = 'round'
@@ -87,11 +87,15 @@ export function redrawDrawingCanvas(
   context.setTransform(ratio, 0, 0, ratio, 0, 0)
   context.globalCompositeOperation = 'source-over'
   context.clearRect(0, 0, rect.width, rect.height)
+
   context.fillStyle = backgroundColor
   context.fillRect(0, 0, rect.width, rect.height)
 
   strokes.forEach((stroke) => drawStroke(context, stroke))
-  if (activeStroke) drawStroke(context, activeStroke)
+
+  if (activeStroke) {
+    drawStroke(context, activeStroke)
+  }
 }
 
 export default function DrawingCanvas({
@@ -106,6 +110,15 @@ export default function DrawingCanvas({
   onStrokeFinished,
 }: DrawingCanvasProps) {
   useEffect(() => {
+    redrawDrawingCanvas(
+      canvasRef.current,
+      [],
+      null,
+      canvasBackground,
+    )
+  }, [canvasRef, canvasBackground])
+
+  useEffect(() => {
     if (!canDraw) {
       activeStrokeRef.current = null
       isDrawingRef.current = false
@@ -117,7 +130,6 @@ export default function DrawingCanvas({
   ): DrawingPoint => {
     const rect = event.currentTarget.getBoundingClientRect()
 
-    // Coordinates are in CSS pixels, matching the drawing renderer.
     return {
       x: Math.max(0, Math.min(rect.width, event.clientX - rect.left)),
       y: Math.max(0, Math.min(rect.height, event.clientY - rect.top)),
@@ -139,7 +151,7 @@ export default function DrawingCanvas({
     try {
       canvas.setPointerCapture(event.pointerId)
     } catch {
-      // Continue drawing if pointer capture is unavailable.
+      // Continue if pointer capture is unavailable.
     }
 
     const point = getPoint(event)
@@ -172,7 +184,12 @@ export default function DrawingCanvas({
   ) => {
     const stroke = activeStrokeRef.current
 
-    if (!canDraw || !socket.connected || !isDrawingRef.current || !stroke) {
+    if (
+      !canDraw ||
+      !socket.connected ||
+      !isDrawingRef.current ||
+      !stroke
+    ) {
       return
     }
 
@@ -180,9 +197,11 @@ export default function DrawingCanvas({
 
     const current = getPoint(event)
     const previous = stroke.points[stroke.points.length - 1]
+
     stroke.points.push(current)
 
     const context = canvasRef.current?.getContext('2d')
+
     if (context) {
       const ratio = window.devicePixelRatio || 1
       context.setTransform(ratio, 0, 0, ratio, 0, 0)
@@ -249,8 +268,12 @@ export default function DrawingCanvas({
       />
 
       <div className="drawing-reactions">
-        <button type="button" aria-label="Like drawing">👍</button>
-        <button type="button" aria-label="Dislike drawing">👎</button>
+        <button type="button" aria-label="Like drawing">
+          👍
+        </button>
+        <button type="button" aria-label="Dislike drawing">
+          👎
+        </button>
       </div>
     </section>
   )
