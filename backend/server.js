@@ -1,4 +1,3 @@
-
 const express = require('express')
 const http = require('http')
 const cors = require('cors')
@@ -313,6 +312,14 @@ function endTurn(room) {
   if (room.status !== 'playing') return
 
   clearTurnTimer(room)
+
+  // Award each successful guesser's pending points once, at turn end.
+  for (const [playerId, points] of room.pendingScores) {
+    const player = room.players.find((item) => item.id === playerId)
+    if (player) player.points += points
+  }
+  room.pendingScores.clear()
+
   room.status = 'roundEnded'
 
   io.to(room.code).emit('round_end', {
@@ -364,6 +371,7 @@ function beginTurn(room) {
   room.status = 'choosing'
   room.word = null
   room.correctGuessers.clear()
+  room.pendingScores.clear()
   room.strokes = []
   room.activeStroke = null
   room.hintCount = 0
@@ -446,6 +454,8 @@ function createRoom(socket, payload = {}) {
     hostId: socket.id,
     players: [{
       id: socket.id,
+      sessionToken: crypto.randomUUID(),
+      reconnectTimer: null,
       name,
       points: 0,
       color: '#ff3434',
@@ -461,6 +471,7 @@ function createRoom(socket, payload = {}) {
     word: null,
     wordOptions: [],
     correctGuessers: new Set(),
+    pendingScores: new Map(),
     strokes: [],
     activeStroke: null,
     hintCount: 0,
@@ -475,6 +486,7 @@ function createRoom(socket, payload = {}) {
 
   socket.emit('room_created', {
     code,
+    sessionToken: room.players[0].sessionToken,
     room: publicRoom(room),
   })
 
@@ -590,6 +602,8 @@ function joinRoom(socket, payload = {}) {
 
   const player = {
     id: socket.id,
+    sessionToken: crypto.randomUUID(),
+    reconnectTimer: null,
     name: playerName,
     points: 0,
     color: ['#ff3434', '#3478f6', '#21a675', '#a855f7'][
@@ -606,6 +620,7 @@ function joinRoom(socket, payload = {}) {
 
   socket.emit('room_joined', {
     code,
+    sessionToken: player.sessionToken,
     room: publicRoom(room),
   })
 
@@ -802,7 +817,7 @@ function submitGuess(socket, payload = {}) {
     )
 
     const points = 100 + remaining * 20
-    player.points += points
+    room.pendingScores.set(player.id, points)
 
     // Public event: announce the correct guess without exposing the word.
     io.to(room.code).emit('guess_result', {
@@ -930,11 +945,62 @@ function undoDrawing(socket) {
   io.to(room.code).emit('draw_undo', {})
 }
 
+function restoreSession(socket, payload = {}) {
+  const token = String(payload.token || '')
+  const code = String(payload.roomCode || '').trim().toUpperCase()
+  if (!token || !code) return fail(socket, 'Your saved game session is invalid.')
+
+  const room = rooms.get(code)
+  const player = room?.players.find((item) => item.sessionToken === token)
+  if (!room || !player || room.status === 'finished') {
+    socket.emit('session_restore_failed', { message: 'This game session has expired. Please join the room again.' })
+    return
+  }
+
+  if (player.reconnectTimer) {
+    clearTimeout(player.reconnectTimer)
+    player.reconnectTimer = null
+  }
+
+  const oldId = player.id
+  if (oldId !== socket.id) {
+    socketRooms.delete(oldId)
+    player.id = socket.id
+    if (room.hostId === oldId) room.hostId = socket.id
+    if (room.correctGuessers.delete(oldId)) room.correctGuessers.add(socket.id)
+    if (room.pendingScores.has(oldId)) {
+      const points = room.pendingScores.get(oldId)
+      room.pendingScores.delete(oldId)
+      room.pendingScores.set(socket.id, points)
+    }
+  }
+
+  socket.join(room.code)
+  socketRooms.set(socket.id, room.code)
+  socket.emit('session_restored', {
+    code: room.code,
+    sessionToken: player.sessionToken,
+    room: publicRoom(room),
+  })
+  emitRoom(room)
+  sendGameState(room)
+  if (room.status === 'playing') {
+    socket.emit('draw_history', { strokes: room.strokes })
+  }
+  if (room.status === 'choosing' && room.players[room.drawerIndex]?.id === socket.id) {
+    socket.emit('word_choices', { words: room.wordOptions })
+  }
+}
+
 function leaveRoom(socket) {
   const room = getRoomForSocket(socket)
   if (!room) return
 
   const leavingPlayer = getPlayer(room, socket)
+  if (leavingPlayer?.reconnectTimer) {
+    clearTimeout(leavingPlayer.reconnectTimer)
+    leavingPlayer.reconnectTimer = null
+  }
   const wasHost = room.hostId === socket.id
   const leavingIndex = room.players.findIndex(
     (player) => player.id === socket.id,
@@ -1110,9 +1176,22 @@ socket.on('quick_play', (payload = {}) => {
   socket.on('draw_undo', () => undoDrawing(socket))
   socket.on('leave_room', () => leaveRoom(socket))
 
+  socket.on('restore_session', (payload) => restoreSession(socket, payload))
+
   socket.on('disconnect', () => {
     console.log('Disconnected:', socket.id)
-    leaveRoom(socket)
+    const room = getRoomForSocket(socket)
+    const player = getPlayer(room, socket)
+    if (!room || !player) return
+
+    // Keep the player in the room briefly so a browser refresh can restore them.
+    if (player.reconnectTimer) clearTimeout(player.reconnectTimer)
+    player.reconnectTimer = setTimeout(() => {
+      player.reconnectTimer = null
+      if (player.id === socket.id && socketRooms.has(socket.id)) {
+        leaveRoom(socket)
+      }
+    }, 120000)
   })
 })
 

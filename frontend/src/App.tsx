@@ -40,6 +40,7 @@ type ServerRoom = {
 }
 
 const PLAYER_STORAGE_KEY = 'skribbl-local-player'
+const SESSION_STORAGE_KEY = 'skribbl-session'
 
 function loadPlayer(): SavedPlayer {
   try {
@@ -168,6 +169,7 @@ function AppRoutes() {
       }
 
       setRoom(null)
+      localStorage.removeItem(SESSION_STORAGE_KEY)
       setIsSettingsOpen(false)
       setError('')
     }
@@ -194,7 +196,10 @@ function AppRoutes() {
   )
 
   useEffect(() => {
-    const onCreated = (payload: { room: ServerRoom }) => {
+    const onCreated = (payload: { room: ServerRoom; sessionToken?: string }) => {
+      if (payload.sessionToken) {
+        localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({ token: payload.sessionToken, roomCode: payload.room.code }))
+      }
       console.log('[Room] Created:', payload.room.code)
 
       setRoom(toGameRoom(payload.room))
@@ -203,13 +208,30 @@ function AppRoutes() {
       navigate(`/game?room=${payload.room.code}`)
     }
 
-    const onJoined = (payload: { room: ServerRoom }) => {
+    const onJoined = (payload: { room: ServerRoom; sessionToken?: string }) => {
+      if (payload.sessionToken) {
+        localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({ token: payload.sessionToken, roomCode: payload.room.code }))
+      }
       console.log('[Room] Joined:', payload.room.code)
 
       setRoom(toGameRoom(payload.room))
       setError('')
       setIsSettingsOpen(false)
       navigate(`/game?room=${payload.room.code}`)
+    }
+
+    const onSessionRestored = (payload: { room: ServerRoom; sessionToken?: string }) => {
+      if (payload.sessionToken) {
+        localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({ token: payload.sessionToken, roomCode: payload.room.code }))
+      }
+      setRoom(toGameRoom(payload.room))
+      setError('')
+      if (location.pathname !== '/game') navigate(`/game?room=${payload.room.code}`)
+    }
+
+    const onSessionRestoreFailed = (payload: { message?: string }) => {
+      localStorage.removeItem(SESSION_STORAGE_KEY)
+      setError(payload.message || 'Could not restore your previous game session.')
     }
 
     const onRoomState = (serverRoom: ServerRoom) => {
@@ -236,12 +258,16 @@ function AppRoutes() {
 
     socket.on('room_created', onCreated)
     socket.on('room_joined', onJoined)
+    socket.on('session_restored', onSessionRestored)
+    socket.on('session_restore_failed', onSessionRestoreFailed)
     socket.on('room_state', onRoomState)
     socket.on('game_error', onError)
 
     return () => {
       socket.off('room_created', onCreated)
       socket.off('room_joined', onJoined)
+      socket.off('session_restored', onSessionRestored)
+      socket.off('session_restore_failed', onSessionRestoreFailed)
       socket.off('room_state', onRoomState)
       socket.off('game_error', onError)
     }
@@ -252,6 +278,30 @@ function AppRoutes() {
       socket.connect()
     }
   }, [])
+
+  // Restore the same player after a full browser refresh.
+  useEffect(() => {
+    const attemptRestore = () => {
+      if (location.pathname !== '/game') return
+      const urlCode = new URLSearchParams(location.search).get('room')?.toUpperCase()
+      if (!urlCode) return
+      try {
+        const raw = localStorage.getItem(SESSION_STORAGE_KEY)
+        if (!raw) return
+        const saved = JSON.parse(raw) as { token?: string; roomCode?: string }
+        if (!saved.token || !saved.roomCode || saved.roomCode.toUpperCase() !== urlCode) return
+        // If the room is already loaded, this is a route change, not a refresh.
+        if (room?.code === urlCode) return
+        socket.emit('restore_session', { token: saved.token, roomCode: saved.roomCode })
+      } catch {
+        localStorage.removeItem(SESSION_STORAGE_KEY)
+      }
+    }
+
+    socket.on('connect', attemptRestore)
+    if (socket.connected) attemptRestore()
+    return () => { socket.off('connect', attemptRestore) }
+  }, [location.pathname, location.search, room?.code])
 
   // Keep local room state aligned with the room code in the URL.
   useEffect(() => {

@@ -161,7 +161,8 @@ export default function GamePage({
   const [canvasBackground, setCanvasBackground] = useState('#ffffff')
   const [brushSize, setBrushSize] = useState(4)
   const [strokes, setStrokes] = useState<DrawingStroke[]>([])
-
+  const [winner, setWinner] = useState<Player | null>(null)
+  const [finalLeaderboard, setFinalLeaderboard] = useState<Player[]>([])
   const [revealedLetters, setRevealedLetters] = useState(0)
   const [hasGuessedCorrectly, setHasGuessedCorrectly] = useState(false)
   const [selectedWord, setSelectedWord] = useState('')
@@ -332,6 +333,8 @@ export default function GamePage({
       setIsChoosingWord(payload.drawerId === socket.id)
       setHasRoundEnded(false)
       setGameFinished(false)
+      setWinner(null)
+      setFinalLeaderboard([])
       setHasGuessedCorrectly(false)
       setSelectedWord('')
       setWordLength(0)
@@ -417,30 +420,43 @@ const handleGuessResult = (payload: {
     }
 
     const handleGameOver = (payload: {
-      winner: Player | null
-      leaderboard?: Player[]
-    }) => {
-      setGameFinished(true)
-      setHasStarted(false)
-      setIsChoosingWord(false)
-      setHasRoundEnded(false)
-      setTimeLeft(0)
-      setServerDeadline(null)
+  winner: Player | null
+  leaderboard?: Player[]
+}) => {
+  const finalWinner =
+    payload.winner ??
+    [...(payload.leaderboard ?? [])].sort(
+      (a, b) => b.points - a.points,
+    )[0] ??
+    null
 
-      if (payload.leaderboard) {
-        setGamePlayersFromServer(payload.leaderboard)
-      }
+  setWinner(finalWinner)
+  setFinalLeaderboard(
+    [...(payload.leaderboard ?? (finalWinner ? [finalWinner] : []))]
+      .sort((a, b) => b.points - a.points)
+      .slice(0, 3),
+  )
+  setGameFinished(true)
+  setHasStarted(false)
+  setIsChoosingWord(false)
+  setHasRoundEnded(false)
+  setTimeLeft(0)
+  setServerDeadline(null)
 
-      setMessages((current) => [
-        ...current,
-        {
-          text: payload.winner
-            ? `Game over! Winner: ${payload.winner.name} with ${payload.winner.points} points.`
-            : 'Game over!',
-          type: 'system',
-        },
-      ])
-    }
+  if (payload.leaderboard) {
+    setGamePlayersFromServer(payload.leaderboard)
+  }
+
+  setMessages((current) => [
+    ...current,
+    {
+      text: finalWinner
+        ? `Game over! Winner: ${finalWinner.name} with ${finalWinner.points} points.`
+        : 'Game over!',
+      type: 'system',
+    },
+  ])
+}
 
     const handleDrawingStart = (payload: DrawingPayload) => {
       const point = toStrokePoint(payload)
@@ -825,19 +841,32 @@ const handleGuessResult = (payload: {
       )}
 
       {gameFinished && (
-        <div className="game-finished" role="status">
-          <h2>Game Over!</h2>
-          <p>
-            Winner:{' '}
-            {[...gamePlayers].sort((a, b) => b.points - a.points)[0]?.name ??
-              username}
-          </p>
-          <button
-            type="button"
-            onClick={() => window.location.assign('/')}
-          >
-            Return to Lobby
-          </button>
+        <div
+          className="winner-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="winner-title"
+        >
+          <div className="winner-results">
+            <h2 id="winner-title">Result</h2>
+            <div className="winner-podium">
+              {(finalLeaderboard.length > 0
+                ? finalLeaderboard
+                : winner
+                  ? [winner]
+                  : []
+              ).map((player, index) => (
+                <div className={`podium-player podium-place-${index + 1}`} key={player.id}>
+                  <div className="podium-avatar" aria-hidden="true">
+                    {player.face || '☺'}
+                  </div>
+                  <div className="podium-rank">#{index + 1}</div>
+                  <p className="podium-name">{player.name}</p>
+                  <p className="podium-score">{player.points} points</p>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       )}
 
