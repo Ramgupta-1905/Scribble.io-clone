@@ -819,87 +819,10 @@ function chooseWord(socket, payload = {}) {
   startTimer(room)
 }
 
-function submitGuess(socket, payload = {}) {
-  const room = getRoomForSocket(socket)
-  const player = getPlayer(room, socket)
-
-  if (!room || !player || room.status !== 'playing') return
-  if (player.id === room.players[room.drawerIndex]?.id) return
-  if (room.correctGuessers.has(player.id)) return
-
-  const guess = String(payload.text || '').trim().slice(0, 100)
-  if (!guess) return
-
-  if (guess.toLowerCase() === room.word.toLowerCase()) {
-    room.correctGuessers.add(player.id)
-
-    const remaining = Math.max(
-      0,
-      room.players.length - 1 - room.correctGuessers.size,
-    )
-
-    const points = 100 + remaining * 20
-    room.pendingScores.set(player.id, points)
-
-    // Public event: announce the correct guess without exposing the word.
-    io.to(room.code).emit('guess_result', {
-      correct: true,
-      playerId: player.id,
-      playerName: player.name,
-      points,
-    })
-
-    // Private event: only the successful guesser receives the answer.
-    
-socket.emit('guess_result', {
-  correct: true,
-  playerId: player.id,
-  playerName: player.name,
-  points,
-  word: room.word,
-})
-
-
-    sendChat(room, `${player.name} guessed the word correctly!`, 'success')
-    emitRoom(room)
-    sendGameState(room)
-
-    if (room.correctGuessers.size >= room.players.length - 1) {
-      endTurn(room)
-    }
-
-    return
-  }
-
-  io.to(room.code).emit('chat_message', {
-    id: crypto.randomUUID(),
-    text: `${player.name}: ${guess}`,
-    type: 'chat',
-    timestamp: Date.now(),
-  })
-}
-
-function submitChat(socket, payload = {}) {
-  const room = getRoomForSocket(socket)
-  const player = getPlayer(room, socket)
-
-  if (!room || !player) return
-
-  const text = String(payload.text || '').trim().slice(0, 200)
-  if (!text) return
-
-  io.to(room.code).emit('chat_message', {
-    id: crypto.randomUUID(),
-    text: `${player.name}: ${text}`,
-    type: 'chat',
-    timestamp: Date.now(),
-  })
-}
-
-
 function drawEvent(socket, event, payload = {}) {
   const room = getRoomForSocket(socket)
 
+  // 1. Validate room and game phase
   if (!room || room.status !== 'playing') {
     console.log('[DRAW REJECTED: ROOM/PHASE]', {
       event,
@@ -910,9 +833,10 @@ function drawEvent(socket, event, payload = {}) {
     return
   }
 
+  // 2. Validate that the sender is the current drawer
   const drawer = room.players[room.drawerIndex]
 
-  if (drawer?.id !== socket.id) {
+  if (!drawer || drawer.id !== socket.id) {
     console.log('[DRAW REJECTED: NOT DRAWER]', {
       event,
       socketId: socket.id,
@@ -922,6 +846,13 @@ function drawEvent(socket, event, payload = {}) {
     return
   }
 
+  // 3. Accept only supported drawing events
+  if (!['draw_start', 'draw_move', 'draw_end'].includes(event)) {
+    console.warn('[DRAW REJECTED: INVALID EVENT]', event)
+    return
+  }
+
+  // 4. Sanitize drawing data
   const safePayload = {
     x: clamp(payload?.x, 0, 10000),
     y: clamp(payload?.y, 0, 10000),
@@ -932,6 +863,7 @@ function drawEvent(socket, event, payload = {}) {
     tool: payload?.tool === 'eraser' ? 'eraser' : 'pencil',
   }
 
+  // 5. Start a new stroke
   if (event === 'draw_start') {
     room.activeStroke = {
       color: safePayload.color,
@@ -940,7 +872,15 @@ function drawEvent(socket, event, payload = {}) {
       tool: safePayload.tool,
       points: [{ x: safePayload.x, y: safePayload.y }],
     }
-  } else if (event === 'draw_move') {
+
+    console.log('[DRAW START ACCEPTED]', {
+      socketId: socket.id,
+      room: room.code,
+    })
+  }
+
+  // 6. Add points to the active stroke
+  else if (event === 'draw_move') {
     if (!room.activeStroke) {
       console.log('[DRAW MOVE IGNORED: NO ACTIVE STROKE]', {
         room: room.code,
@@ -953,7 +893,10 @@ function drawEvent(socket, event, payload = {}) {
       x: safePayload.x,
       y: safePayload.y,
     })
-  } else if (event === 'draw_end') {
+  }
+
+  // 7. Finish and save the stroke
+  else if (event === 'draw_end') {
     if (!room.activeStroke) {
       console.log('[DRAW END IGNORED: NO ACTIVE STROKE]', {
         room: room.code,
@@ -963,16 +906,16 @@ function drawEvent(socket, event, payload = {}) {
     }
 
     room.strokes.push(room.activeStroke)
+    const completedStroke = room.activeStroke
     room.activeStroke = null
-  }
 
-  socket.to(room.code).emit(event, safePayload)
-
-  if (event === 'draw_end') {
     socket.to(room.code).emit('draw_data', {
-      stroke: room.strokes[room.strokes.length - 1],
+      stroke: completedStroke,
     })
   }
+
+  // 8. Broadcast drawing events to the other players
+  socket.to(room.code).emit(event, safePayload)
 }
 
 
