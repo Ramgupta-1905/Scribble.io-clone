@@ -1189,6 +1189,14 @@ socket.on('quick_play', (payload = {}) => {
 
   socket.on('request_game_sync', () => {
     const room = getRoomForSocket(socket)
+    console.log('[DRAW EVENT RECEIVED]', {
+  event,
+  socketId: socket.id,
+  roomCode: socketRooms.get(socket.id) || null,
+  roomFound: Boolean(room),
+  phase: room?.status,
+  drawerId: room?.players[room.drawerIndex]?.id ?? null,
+})
     const player = getPlayer(room, socket)
 
     if (!room || !player) return
