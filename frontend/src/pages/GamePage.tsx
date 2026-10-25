@@ -188,14 +188,16 @@ export default function GamePage({
     Number(getSetting(settings, 'Draw Time', '80')) || 80,
   )
 
-  const redrawCanvas = useCallback(() => {
-    redrawDrawingCanvas(
-      canvasRef.current,
-      strokes,
-      activeStrokeRef.current,
-      canvasBackground,
-    )
-  }, [strokes, canvasBackground])
+  
+const redrawCanvas = useCallback(() => {
+  redrawDrawingCanvas(
+    canvasRef.current,
+    strokes,
+    activeStrokeRef.current,
+    canvasBackground,
+  )
+}, [strokes, canvasBackground])
+
 
   useEffect(() => {
     redrawCanvas()
@@ -434,13 +436,20 @@ export default function GamePage({
       setStrokes((current) => [...current])
     }
 
-    const handleDrawingMove = (payload: DrawingPayload) => {
-      const stroke = activeStrokeRef.current
-      if (!stroke) return
+    
+const handleDrawingMove = (payload: DrawingPayload) => {
+  const stroke = activeStrokeRef.current
+  if (!stroke) return
 
-      stroke.points.push(toStrokePoint(payload))
-      redrawCanvas()
-    }
+  stroke.points.push(toStrokePoint(payload))
+
+  // Redraw only for strokes received from other players.
+  // The current drawer renders its own pointer movement directly.
+  if (!isCurrentPlayerDrawing) {
+    redrawCanvas()
+  }
+}
+
 
     const handleDrawingEnd = () => {
       const stroke = activeStrokeRef.current
