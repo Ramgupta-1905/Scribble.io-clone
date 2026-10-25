@@ -1,3 +1,4 @@
+
 import { useState } from 'react'
 import AvatarSelector from '../layout/AvatarSelector'
 import LandingActions from './LandingActions'
@@ -94,7 +95,11 @@ function PlayerSetup({
         <AvatarSelector />
       </div>
 
-      {error && <p role="alert">{error}</p>}
+      {error && (
+        <p className="player-setup-error" role="alert">
+          {error}
+        </p>
+      )}
 
       <LandingActions
         onPlay={handlePlay}

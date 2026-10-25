@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   BrowserRouter,
   Routes,
@@ -9,88 +10,137 @@ import {
 
 import LandingPage from './pages/LandingPage'
 import GamePage from './pages/GamePage'
-
-import type {
-  GameRoom,
-  Player,
-} from './components/game/GameTypes'
-
+import type { GameRoom, Player } from './components/game/GameTypes'
 import { settingOptions } from './components/game/GameTypes'
-
-const ROOMS_STORAGE_KEY = 'skribbl-local-rooms'
-const PLAYER_STORAGE_KEY = 'skribbl-local-player'
+import { socket } from './lib/socket'
 
 type SavedPlayer = {
   username: string
   language: string
 }
 
-function generateRoomCode(): string {
-  const characters = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-  const values = new Uint32Array(6)
-
-  crypto.getRandomValues(values)
-
-  return Array.from(
-    values,
-    (value) => characters[value % characters.length],
-  ).join('')
+type ServerPlayer = {
+  id: string
+  name: string
+  points: number
+  color: string
+  face: string
+  isHost: boolean
 }
 
-function createUniqueRoomCode(rooms: GameRoom[]): string {
-  let code = generateRoomCode()
-
-  while (rooms.some((room) => room.code === code)) {
-    code = generateRoomCode()
-  }
-
-  return code
+type ServerRoom = {
+  code: string
+  settings: Record<string, string | number>
+  players: ServerPlayer[]
+  status: string
+  isPrivate?: boolean
+  round?: number
+  drawerId?: string | null
+  customWordsOnly?: boolean
 }
 
-function loadRooms(): GameRoom[] {
-  try {
-    const savedRooms = localStorage.getItem(ROOMS_STORAGE_KEY)
-
-    if (!savedRooms) return []
-
-    const parsed: unknown = JSON.parse(savedRooms)
-
-    if (!Array.isArray(parsed)) return []
-
-    return parsed as GameRoom[]
-  } catch {
-    return []
-  }
-}
+const PLAYER_STORAGE_KEY = 'skribbl-local-player'
 
 function loadPlayer(): SavedPlayer {
   try {
-    const savedPlayer = localStorage.getItem(PLAYER_STORAGE_KEY)
+    const saved = localStorage.getItem(PLAYER_STORAGE_KEY)
 
-    if (savedPlayer) {
-      const parsed: unknown = JSON.parse(savedPlayer)
+    if (saved) {
+      const parsed = JSON.parse(saved)
 
       if (
-        typeof parsed === 'object' &&
-        parsed !== null &&
-        'username' in parsed &&
-        'language' in parsed &&
         typeof parsed.username === 'string' &&
         typeof parsed.language === 'string'
       ) {
-        return {
-          username: parsed.username,
-          language: parsed.language,
-        }
+        return parsed
       }
     }
   } catch {
-    // Use the default player details if saved data is invalid.
+    // Continue with default player details.
   }
 
+  return { username: '', language: 'English' }
+}
+
+function getSetting(
+  settings: Record<string, string>,
+  names: string[],
+  fallback: string,
+): string {
+  for (const name of names) {
+    const value = settings[name]
+    if (value !== undefined && value !== '') return value
+  }
+
+  return fallback
+}
+
+function toServerSettings(settings: Record<string, string>) {
+  const hintsValue = getSetting(settings, ['Hints', 'hints'], 'On')
+
   return {
-    username: '',
-    language: 'English',
+    maxPlayers: Number(
+      getSetting(settings, ['Max Players', 'maxPlayers', 'players'], '8'),
+    ),
+    drawTime: Number(
+      getSetting(settings, ['Draw Time', 'drawTime', 'drawtime'], '80'),
+    ),
+    rounds: Number(getSetting(settings, ['Rounds', 'rounds'], '3')),
+    wordCount: Number(
+      getSetting(settings, ['Word Count', 'wordCount', 'wordcount'], '3'),
+    ),
+    hints:
+      hintsValue.toLowerCase() === 'off' ||
+      hintsValue.toLowerCase() === 'disabled'
+        ? 0
+        : Math.max(0, Number(hintsValue) || 2),
+    gameMode: getSetting(
+      settings,
+      ['Game Mode', 'gameMode', 'wordMode'],
+      'Normal',
+    ),
+  }
+}
+
+function toGameRoom(serverRoom: ServerRoom): GameRoom {
+  const players: Player[] = serverRoom.players.map((player, index) => ({
+    ...player,
+    rank: index + 1,
+  }))
+
+  const serverSettings = serverRoom.settings ?? {}
+
+  const settings: Record<string, string> = {
+    'Max Players': String(
+      serverSettings.maxPlayers ?? serverSettings.players ?? 8,
+    ),
+    'Draw Time': String(
+      serverSettings.drawTime ?? serverSettings.drawtime ?? 80,
+    ),
+    Rounds: String(serverSettings.rounds ?? 3),
+    'Word Count': String(
+      serverSettings.wordCount ?? serverSettings.wordcount ?? 3,
+    ),
+    Hints: Number(serverSettings.hints ?? 2) === 0 ? 'Off' : 'On',
+    'Game Mode': String(serverSettings.gameMode ?? 'Normal'),
+  }
+
+  const status =
+    serverRoom.status === 'playing' ||
+    serverRoom.status === 'choosing' ||
+    serverRoom.status === 'roundEnded'
+      ? 'playing'
+      : serverRoom.status === 'finished'
+        ? 'finished'
+        : 'lobby'
+
+  return {
+    code: serverRoom.code,
+    hostId: players.find((player) => player.isHost)?.id ?? '',
+    players,
+    settings,
+    status,
+    isPrivate: serverRoom.isPrivate ?? true,
   }
 }
 
@@ -98,131 +148,199 @@ function AppRoutes() {
   const navigate = useNavigate()
   const location = useLocation()
 
-  const [rooms, setRooms] = useState<GameRoom[]>(loadRooms)
-  const [savedPlayer, setSavedPlayer] =
-    useState<SavedPlayer>(loadPlayer)
-
+  const [savedPlayer, setSavedPlayer] = useState<SavedPlayer>(loadPlayer)
   const [username, setUsername] = useState(savedPlayer.username)
   const [language, setLanguage] = useState(savedPlayer.language)
+  const [room, setRoom] = useState<GameRoom | null>(null)
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [error, setError] = useState('')
 
-  const [selectedRoomCode, setSelectedRoomCode] = useState<string | null>(
-    null,
+  // Track route changes so leaving /game also leaves the server room.
+  const previousPathRef = useRef(location.pathname)
+
+  useEffect(() => {
+    const previousPath = previousPathRef.current
+    previousPathRef.current = location.pathname
+
+    if (previousPath === '/game' && location.pathname !== '/game') {
+      if (socket.connected) {
+        socket.emit('leave_room')
+      }
+
+      setRoom(null)
+      setIsSettingsOpen(false)
+      setError('')
+    }
+  }, [location.pathname])
+
+  const savePlayerDetails = useCallback(
+    (name: string, selectedLanguage: string) => {
+      const details = {
+        username: name.trim(),
+        language: selectedLanguage,
+      }
+
+      setUsername(details.username)
+      setLanguage(details.language)
+      setSavedPlayer(details)
+
+      try {
+        localStorage.setItem(PLAYER_STORAGE_KEY, JSON.stringify(details))
+      } catch {
+        // The game can still run without local storage.
+      }
+    },
+    [],
   )
 
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
-  const [isPrivateRoom, setIsPrivateRoom] = useState(false)
-
-  const room =
-    rooms.find((item) => item.code === selectedRoomCode) ?? null
-
-  // Persist rooms locally so refreshing the page does not erase them.
   useEffect(() => {
-    try {
-      localStorage.setItem(ROOMS_STORAGE_KEY, JSON.stringify(rooms))
-    } catch (error) {
-      console.error('Could not save local rooms:', error)
-    }
-  }, [rooms])
+    const onCreated = (payload: { room: ServerRoom }) => {
+      console.log('[Room] Created:', payload.room.code)
 
-  // Persist the current player's details.
+      setRoom(toGameRoom(payload.room))
+      setError('')
+      setIsSettingsOpen(false)
+      navigate(`/game?room=${payload.room.code}`)
+    }
+
+    const onJoined = (payload: { room: ServerRoom }) => {
+      console.log('[Room] Joined:', payload.room.code)
+
+      setRoom(toGameRoom(payload.room))
+      setError('')
+      setIsSettingsOpen(false)
+      navigate(`/game?room=${payload.room.code}`)
+    }
+
+    const onRoomState = (serverRoom: ServerRoom) => {
+      setRoom((currentRoom) => {
+        // Do not let an old room update replace the active room.
+        if (
+          currentRoom &&
+          currentRoom.code !== serverRoom.code
+        ) {
+          return currentRoom
+        }
+
+        return toGameRoom(serverRoom)
+      })
+    }
+
+    const onError = (payload: { message?: string }) => {
+      const message = payload.message || 'Something went wrong.'
+
+      console.error('[Socket.IO] Game error:', message)
+      setError(message)
+      window.alert(message)
+    }
+
+    socket.on('room_created', onCreated)
+    socket.on('room_joined', onJoined)
+    socket.on('room_state', onRoomState)
+    socket.on('game_error', onError)
+
+    return () => {
+      socket.off('room_created', onCreated)
+      socket.off('room_joined', onJoined)
+      socket.off('room_state', onRoomState)
+      socket.off('game_error', onError)
+    }
+  }, [navigate])
+
   useEffect(() => {
-    try {
-      localStorage.setItem(
-        PLAYER_STORAGE_KEY,
-        JSON.stringify(savedPlayer),
-      )
-    } catch (error) {
-      console.error('Could not save player details:', error)
+    if (!socket.connected) {
+      socket.connect()
     }
-  }, [savedPlayer])
+  }, [])
 
-  // Restore the selected room from a room-code URL after refresh.
+  // Keep local room state aligned with the room code in the URL.
   useEffect(() => {
     if (location.pathname !== '/game') return
 
-    const queryCode = new URLSearchParams(location.search)
-      .get('room')
-      ?.trim()
-      .toUpperCase()
+    const code = new URLSearchParams(location.search).get('room')
 
-    if (!queryCode) return
-
-    const matchingRoom = rooms.find(
-      (item) => item.code === queryCode,
-    )
-
-    if (matchingRoom) {
-      setSelectedRoomCode(matchingRoom.code)
-      setIsPrivateRoom(true)
+    if (!code) {
+      setRoom(null)
+      return
     }
-  }, [location.pathname, location.search, rooms])
 
-  const savePlayerDetails = (
+    setRoom((currentRoom) => {
+      if (
+        currentRoom &&
+        currentRoom.code !== code.toUpperCase()
+      ) {
+        return null
+      }
+
+      return currentRoom
+    })
+  }, [location.pathname, location.search])
+
+  const openGame = (
     name: string,
     selectedLanguage: string,
   ) => {
-    const playerDetails = {
-      username: name.trim(),
-      language: selectedLanguage,
+    const trimmedName = name.trim()
+
+    if (!trimmedName) {
+      window.alert('Enter your name first.')
+      return
     }
 
-    setUsername(playerDetails.username)
-    setLanguage(playerDetails.language)
-    setSavedPlayer(playerDetails)
-  }
+    if (!socket.connected) {
+      setError('Connecting to the game server. Please try again shortly.')
+      socket.connect()
+      return
+    }
 
-  const openGame = (name: string, selectedLanguage: string) => {
-    savePlayerDetails(name, selectedLanguage)
+    savePlayerDetails(trimmedName, selectedLanguage)
+    setRoom(null)
+    setError('')
 
-    setSelectedRoomCode(null)
-    setIsPrivateRoom(false)
-    setIsSettingsOpen(false)
+    console.log('[Quick Play] Sending request:', trimmedName)
 
-    navigate('/game')
+    // Server chooses a public room or creates one when needed.
+    socket.emit('quick_play', {
+      playerName: trimmedName,
+    })
   }
 
   const createRoom = (
     name: string,
     selectedLanguage: string,
   ) => {
-    const currentRooms = rooms
-    const roomCode = createUniqueRoomCode(currentRooms)
-    const hostId = crypto.randomUUID()
+    const trimmedName = name.trim()
 
-    const host: Player = {
-      id: hostId,
-      name: name.trim(),
-      points: 0,
-      color: '#ff3434',
-      face: '☺',
-      rank: 1,
-      isHost: true,
+    if (!trimmedName) {
+      window.alert('Enter your name first.')
+      return
     }
+
+    if (!socket.connected) {
+      setError('Connecting to the game server. Please try again shortly.')
+      socket.connect()
+      return
+    }
+
+    savePlayerDetails(trimmedName, selectedLanguage)
+    setError('')
 
     const settings = Object.fromEntries(
       settingOptions.map((setting) => [
         setting.name,
-        setting.initial,
+        String(setting.initial),
       ]),
-    )
+    ) as Record<string, string>
 
-    const newRoom: GameRoom = {
-      code: roomCode,
-      hostId,
-      players: [host],
-      settings,
-      status: 'lobby',
+    console.log('[Private Room] Creating room:', trimmedName)
+
+    socket.emit('create_room', {
+      playerName: trimmedName,
       isPrivate: true,
-    }
-
-    setRooms((currentRooms) => [...currentRooms, newRoom])
-    savePlayerDetails(name, selectedLanguage)
-
-    setSelectedRoomCode(roomCode)
-    setIsPrivateRoom(true)
-    setIsSettingsOpen(false)
-
-    navigate(`/game?room=${roomCode}`)
+      settings: toServerSettings(settings),
+      customWords: [],
+      customWordsOnly: false,
+    })
   }
 
   const joinRoom = (
@@ -230,139 +348,112 @@ function AppRoutes() {
     selectedLanguage: string,
     roomCode: string,
   ) => {
-    const normalizedCode = roomCode.trim().toUpperCase()
+    const trimmedName = name.trim()
+    const code = roomCode.trim().toUpperCase()
 
-    if (!normalizedCode) {
-      window.alert('Please enter a room code.')
+    if (!trimmedName || !code) {
+      window.alert('Enter your name and room code.')
       return
     }
 
-    const targetRoom = rooms.find(
-      (item) => item.code === normalizedCode,
-    )
-
-    if (!targetRoom) {
-      window.alert(
-        'Room not found. Check the code. Local rooms are available only in this browser storage.',
-      )
+    if (!socket.connected) {
+      setError('Connecting to the game server. Please try again shortly.')
+      socket.connect()
       return
     }
 
-    if (targetRoom.status !== 'lobby') {
-      window.alert('This room has already started or finished.')
-      return
-    }
+    savePlayerDetails(trimmedName, selectedLanguage)
+    setError('')
 
-    const existingPlayer = targetRoom.players.find(
-      (player) =>
-        player.name.toLowerCase() === name.trim().toLowerCase(),
-    )
+    console.log('[Join Room] Sending request:', code)
 
-    if (existingPlayer) {
-      window.alert('A player with that name is already in this room.')
-      return
-    }
-
-    const playerLimit = Number(targetRoom.settings.players)
-
-    if (
-      Number.isFinite(playerLimit) &&
-      playerLimit > 0 &&
-      targetRoom.players.length >= playerLimit
-    ) {
-      window.alert('This room has reached its player limit.')
-      return
-    }
-
-    const newPlayer: Player = {
-      id: crypto.randomUUID(),
-      name: name.trim(),
-      points: 0,
-      color: '#5367ff',
-      face: '☺',
-      rank: targetRoom.players.length + 1,
-      isHost: false,
-    }
-
-    setRooms((currentRooms) =>
-      currentRooms.map((item) =>
-        item.code === normalizedCode
-          ? {
-              ...item,
-              players: [...item.players, newPlayer],
-            }
-          : item,
-      ),
-    )
-
-    savePlayerDetails(name, selectedLanguage)
-
-    setSelectedRoomCode(normalizedCode)
-    setIsPrivateRoom(true)
-    setIsSettingsOpen(false)
-
-    navigate(`/game?room=${normalizedCode}`)
+    socket.emit('join_room', {
+      playerName: trimmedName,
+      code,
+    })
   }
 
   const updateRoomSettings = (
-    updatedSettings: Record<string, string>,
+    settings: Record<string, string>,
   ) => {
-    if (!selectedRoomCode) return
+    if (!room) return
 
-    setRooms((currentRooms) =>
-      currentRooms.map((item) =>
-        item.code === selectedRoomCode
-          ? {
-              ...item,
-              settings: updatedSettings,
-            }
-          : item,
-      ),
+    const currentPlayer = room.players.find(
+      (player) => player.id === socket.id,
     )
+
+    if (!currentPlayer?.isHost) {
+      setError('Only the room host can change room settings.')
+      return
+    }
+
+    if (room.status !== 'lobby') {
+      setError('Room settings cannot be changed after the game starts.')
+      return
+    }
+
+    if (!socket.connected) {
+      setError('The connection to the game server was lost.')
+      return
+    }
+
+    setError('')
+
+    socket.emit('update_room_settings', {
+      settings: toServerSettings(settings),
+    })
   }
 
   return (
-    <Routes>
-      <Route
-        path="/"
-        element={
-          <LandingPage
-            onPlay={openGame}
-            onCreateRoom={createRoom}
-            onJoinRoom={joinRoom}
-          />
-        }
-      />
+    <>
+      {error && (
+        <div role="alert" className="network-error">
+          {error}
+        </div>
+      )}
 
-      <Route
-        path="/game"
-        element={
-          <GamePage
-            username={username || 'Player'}
-            language={language}
-            room={room}
-            onRoomSettingsChange={updateRoomSettings}
-            isSettingsOpen={isSettingsOpen}
-            isPrivateRoom={isPrivateRoom}
-            onToggleSettings={() =>
-              setIsSettingsOpen((open) => !open)
-            }
-            onCloseSettings={() => setIsSettingsOpen(false)}
-          />
-        }
-      />
+      <Routes>
+        <Route
+          path="/"
+          element={
+            <LandingPage
+              onPlay={openGame}
+              onCreateRoom={createRoom}
+              onJoinRoom={joinRoom}
+            />
+          }
+        />
 
-      <Route
-        path="*"
-        element={
-          <LandingPage
-            onPlay={openGame}
-            onCreateRoom={createRoom}
-            onJoinRoom={joinRoom}
-          />
-        }
-      />
-    </Routes>
+        <Route
+          path="/game"
+          element={
+            <GamePage
+              username={username || 'Player'}
+              language={language}
+              room={room}
+              onRoomSettingsChange={updateRoomSettings}
+              isSettingsOpen={isSettingsOpen}
+              isPrivateRoom={room?.isPrivate ?? true}
+              onToggleSettings={() =>
+                setIsSettingsOpen((open) => !open)
+              }
+              onCloseSettings={() => setIsSettingsOpen(false)}
+            />
+          }
+        />
+
+        <Route
+          path="*"
+          element={
+            <LandingPage
+              onPlay={openGame}
+              onCreateRoom={createRoom}
+              onJoinRoom={joinRoom}
+            />
+          }
+        />
+      </Routes>
+    </>
   )
 }
 

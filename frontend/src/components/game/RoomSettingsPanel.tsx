@@ -14,6 +14,7 @@ type RoomSettingsPanelProps = {
   startError: string
   roomMemberCount: number
   roomCode?: string
+  isHost: boolean
 }
 
 export default function RoomSettingsPanel({
@@ -29,11 +30,17 @@ export default function RoomSettingsPanel({
   startError,
   roomMemberCount,
   roomCode,
+  isHost,
 }: RoomSettingsPanelProps) {
+  // Only the host can see or use room settings.
+  if (!isHost) {
+    return null
+  }
+
   return (
     <section
       className="room-settings-panel"
-      aria-label="Private room settings"
+      aria-label="Room settings"
     >
       {roomCode && (
         <div className="room-code-display">
@@ -53,7 +60,7 @@ export default function RoomSettingsPanel({
 
             <select
               name={setting.name}
-              value={settings[setting.name]}
+              value={settings[setting.name] ?? ''}
               onChange={(event) =>
                 onSettingChange(setting.name, event.target.value)
               }
@@ -89,7 +96,7 @@ export default function RoomSettingsPanel({
         onChange={(event) =>
           onCustomWordsChange(event.target.value)
         }
-        placeholder="Minimum of 10 words. 1-32 characters per word! 20000 characters maximum. Separated by a , (comma)"
+        placeholder="Minimum of 10 words. 1–32 characters per word. Separate words with commas."
         aria-label="Custom words separated by commas"
       />
 

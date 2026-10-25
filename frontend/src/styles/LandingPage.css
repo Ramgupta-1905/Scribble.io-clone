@@ -799,3 +799,163 @@ body {
     flex-wrap: wrap;
   }
 }
+
+/* =========================================
+   Room joining and public room browser
+========================================= */
+
+.join-room-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  width: 100%;
+  margin-top: 10px;
+}
+
+.join-room-controls input {
+  width: 100%;
+  min-width: 0;
+  height: 40px;
+  padding: 8px 10px;
+  border: 1px solid #ccc;
+  border-radius: 3px;
+  font-size: 14px;
+}
+
+.join-room-controls button,
+.public-room-join-button {
+  min-height: 40px;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 3px;
+  background: #ffbd35;
+  color: #17223b;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.join-room-controls button:hover,
+.public-room-join-button:hover:not(:disabled) {
+  background: #ffd166;
+}
+
+.player-setup-error {
+  margin: 8px 0;
+  color: #ffe1e1;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.public-room-browser {
+  width: 100%;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+.public-room-heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.public-room-heading-row h2 {
+  margin: 0;
+  color: #fff;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.public-room-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 2px 7px;
+  border-radius: 12px;
+  background: #4be52e;
+  color: #12320c;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.public-room-empty {
+  margin: 0;
+  padding: 12px 10px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.16);
+  color: #edf5ff;
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.public-room-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.public-room-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.public-room-details {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px 10px;
+  min-width: 0;
+  color: #edf5ff;
+  font-size: 12px;
+}
+
+.public-room-code {
+  width: 100%;
+  color: #fff;
+  font-size: 15px;
+  letter-spacing: 1px;
+}
+
+.public-room-join-button {
+  flex-shrink: 0;
+  min-width: 60px;
+}
+
+.public-room-join-button:disabled {
+  background: #aab4c1;
+  color: #354052;
+  cursor: not-allowed;
+}
+
+@media (max-width: 480px) {
+  .join-room-controls {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .join-room-controls button {
+    width: 100%;
+  }
+
+  .public-room-item {
+    padding: 8px;
+  }
+
+  .public-room-details {
+    gap: 5px 8px;
+  }
+}
