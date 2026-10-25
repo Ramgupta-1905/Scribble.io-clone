@@ -819,10 +819,10 @@ function chooseWord(socket, payload = {}) {
   startTimer(room)
 }
 
+
 function drawEvent(socket, event, payload = {}) {
   const room = getRoomForSocket(socket)
 
-  // 1. Validate room and game phase
   if (!room || room.status !== 'playing') {
     console.log('[DRAW REJECTED: ROOM/PHASE]', {
       event,
@@ -833,7 +833,6 @@ function drawEvent(socket, event, payload = {}) {
     return
   }
 
-  // 2. Validate that the sender is the current drawer
   const drawer = room.players[room.drawerIndex]
 
   if (!drawer || drawer.id !== socket.id) {
@@ -846,13 +845,10 @@ function drawEvent(socket, event, payload = {}) {
     return
   }
 
-  // 3. Accept only supported drawing events
   if (!['draw_start', 'draw_move', 'draw_end'].includes(event)) {
-    console.warn('[DRAW REJECTED: INVALID EVENT]', event)
     return
   }
 
-  // 4. Sanitize drawing data
   const safePayload = {
     x: clamp(payload?.x, 0, 10000),
     y: clamp(payload?.y, 0, 10000),
@@ -863,7 +859,6 @@ function drawEvent(socket, event, payload = {}) {
     tool: payload?.tool === 'eraser' ? 'eraser' : 'pencil',
   }
 
-  // 5. Start a new stroke
   if (event === 'draw_start') {
     room.activeStroke = {
       color: safePayload.color,
@@ -877,10 +872,13 @@ function drawEvent(socket, event, payload = {}) {
       socketId: socket.id,
       room: room.code,
     })
+
+    // Tell other players a new stroke has started.
+    socket.to(room.code).emit('draw_start', safePayload)
+    return
   }
 
-  // 6. Add points to the active stroke
-  else if (event === 'draw_move') {
+  if (event === 'draw_move') {
     if (!room.activeStroke) {
       console.log('[DRAW MOVE IGNORED: NO ACTIVE STROKE]', {
         room: room.code,
@@ -893,10 +891,12 @@ function drawEvent(socket, event, payload = {}) {
       x: safePayload.x,
       y: safePayload.y,
     })
+
+    socket.to(room.code).emit('draw_move', safePayload)
+    return
   }
 
-  // 7. Finish and save the stroke
-  else if (event === 'draw_end') {
+  if (event === 'draw_end') {
     if (!room.activeStroke) {
       console.log('[DRAW END IGNORED: NO ACTIVE STROKE]', {
         room: room.code,
@@ -905,18 +905,20 @@ function drawEvent(socket, event, payload = {}) {
       return
     }
 
-    room.strokes.push(room.activeStroke)
     const completedStroke = room.activeStroke
+    room.strokes.push(completedStroke)
     room.activeStroke = null
 
+    // Finish the active stroke on other players' canvases.
+    socket.to(room.code).emit('draw_end', safePayload)
+
+    // Keep a full-stroke event available for clients that use it.
     socket.to(room.code).emit('draw_data', {
       stroke: completedStroke,
     })
   }
-
-  // 8. Broadcast drawing events to the other players
-  socket.to(room.code).emit(event, safePayload)
 }
+
 
 
 function clearCanvas(socket) {

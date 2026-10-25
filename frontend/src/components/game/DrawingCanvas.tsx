@@ -1,3 +1,4 @@
+
 import { useEffect } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import type { DrawingPoint, DrawingStroke } from './GameTypes'
@@ -25,14 +26,10 @@ function drawStroke(
   context.lineCap = 'round'
   context.lineJoin = 'round'
   context.lineWidth = stroke.width
-
-  if (stroke.tool === 'eraser') {
-    context.globalCompositeOperation = 'destination-out'
-  } else {
-    context.globalCompositeOperation = 'source-over'
-    context.strokeStyle = stroke.color
-    context.fillStyle = stroke.color
-  }
+  context.globalCompositeOperation =
+    stroke.tool === 'eraser' ? 'destination-out' : 'source-over'
+  context.strokeStyle = stroke.color
+  context.fillStyle = stroke.color
 
   const first = stroke.points[0]
 
@@ -79,15 +76,16 @@ export function redrawDrawingCanvas(
   if (!rect.width || !rect.height) return
 
   const ratio = window.devicePixelRatio || 1
-  const width = Math.round(rect.width * ratio)
-  const height = Math.round(rect.height * ratio)
+  const pixelWidth = Math.round(rect.width * ratio)
+  const pixelHeight = Math.round(rect.height * ratio)
 
-  if (canvas.width !== width || canvas.height !== height) {
-    canvas.width = width
-    canvas.height = height
+  if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+    canvas.width = pixelWidth
+    canvas.height = pixelHeight
   }
 
   context.setTransform(ratio, 0, 0, ratio, 0, 0)
+  context.globalCompositeOperation = 'source-over'
   context.clearRect(0, 0, rect.width, rect.height)
   context.fillStyle = backgroundColor
   context.fillRect(0, 0, rect.width, rect.height)
@@ -101,6 +99,7 @@ export default function DrawingCanvas({
   drawingTool,
   drawingColor,
   brushSize,
+  canvasBackground,
   canDraw = true,
   activeStrokeRef,
   isDrawingRef,
@@ -118,20 +117,30 @@ export default function DrawingCanvas({
   ): DrawingPoint => {
     const rect = event.currentTarget.getBoundingClientRect()
 
+    // Coordinates are in CSS pixels, matching the drawing renderer.
     return {
-      x: event.clientX - rect.left,
-      y: event.clientY - rect.top,
+      x: Math.max(0, Math.min(rect.width, event.clientX - rect.left)),
+      y: Math.max(0, Math.min(rect.height, event.clientY - rect.top)),
     }
   }
 
   const handlePointerDown = (
     event: ReactPointerEvent<HTMLCanvasElement>,
   ) => {
-    if (!canDraw || !socket.connected) return
+    if (!canDraw || !socket.connected || isDrawingRef.current) return
     if (event.button !== 0 && event.pointerType === 'mouse') return
 
+    const canvas = event.currentTarget
+    const context = canvas.getContext('2d')
+    if (!context) return
+
     event.preventDefault()
-    event.currentTarget.setPointerCapture(event.pointerId)
+
+    try {
+      canvas.setPointerCapture(event.pointerId)
+    } catch {
+      // Continue drawing if pointer capture is unavailable.
+    }
 
     const point = getPoint(event)
 
@@ -145,9 +154,6 @@ export default function DrawingCanvas({
     activeStrokeRef.current = stroke
     isDrawingRef.current = true
 
-    const context = canvasRef.current?.getContext('2d')
-    if (!context) return
-
     const ratio = window.devicePixelRatio || 1
     context.setTransform(ratio, 0, 0, ratio, 0, 0)
     drawStroke(context, stroke)
@@ -155,25 +161,25 @@ export default function DrawingCanvas({
     socket.emit('draw_start', {
       x: point.x,
       y: point.y,
-      color: drawingColor,
-      size: brushSize,
-      tool: drawingTool,
+      color: stroke.color,
+      size: stroke.width,
+      tool: stroke.tool,
     })
   }
 
   const handlePointerMove = (
     event: ReactPointerEvent<HTMLCanvasElement>,
   ) => {
-    if (!canDraw || !isDrawingRef.current || !activeStrokeRef.current) {
+    const stroke = activeStrokeRef.current
+
+    if (!canDraw || !socket.connected || !isDrawingRef.current || !stroke) {
       return
     }
 
     event.preventDefault()
 
-    const stroke = activeStrokeRef.current
-    const previous = stroke.points[stroke.points.length - 1]
     const current = getPoint(event)
-
+    const previous = stroke.points[stroke.points.length - 1]
     stroke.points.push(current)
 
     const context = canvasRef.current?.getContext('2d')
@@ -187,14 +193,9 @@ export default function DrawingCanvas({
       context.lineWidth = stroke.width
       context.lineCap = 'round'
       context.lineJoin = 'round'
-
-      if (stroke.tool === 'eraser') {
-        context.globalCompositeOperation = 'destination-out'
-      } else {
-        context.globalCompositeOperation = 'source-over'
-        context.strokeStyle = stroke.color
-      }
-
+      context.globalCompositeOperation =
+        stroke.tool === 'eraser' ? 'destination-out' : 'source-over'
+      context.strokeStyle = stroke.color
       context.stroke()
       context.restore()
     }
@@ -211,25 +212,26 @@ export default function DrawingCanvas({
   const finishDrawing = (
     event: ReactPointerEvent<HTMLCanvasElement>,
   ) => {
-    if (!isDrawingRef.current || !activeStrokeRef.current) return
+    const canvas = event.currentTarget
+    const stroke = activeStrokeRef.current
 
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId)
+    if (!isDrawingRef.current || !stroke) return
+
+    if (canvas.hasPointerCapture(event.pointerId)) {
+      canvas.releasePointerCapture(event.pointerId)
     }
-
-    const finishedStroke = activeStrokeRef.current
 
     activeStrokeRef.current = null
     isDrawingRef.current = false
 
-    if (canDraw) {
+    if (canDraw && socket.connected) {
       socket.emit('draw_end', {
-        color: finishedStroke.color,
-        size: finishedStroke.width,
-        tool: finishedStroke.tool,
+        color: stroke.color,
+        size: stroke.width,
+        tool: stroke.tool,
       })
 
-      onStrokeFinished(finishedStroke)
+      onStrokeFinished(stroke)
     }
   }
 
@@ -247,12 +249,8 @@ export default function DrawingCanvas({
       />
 
       <div className="drawing-reactions">
-        <button type="button" aria-label="Like drawing">
-          👍
-        </button>
-        <button type="button" aria-label="Dislike drawing">
-          👎
-        </button>
+        <button type="button" aria-label="Like drawing">👍</button>
+        <button type="button" aria-label="Dislike drawing">👎</button>
       </div>
     </section>
   )

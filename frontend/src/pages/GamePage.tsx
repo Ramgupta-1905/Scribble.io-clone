@@ -363,25 +363,30 @@ export default function GamePage({
     }
 
     const handleRoundEnd = (payload: {
-      word: string
-      scores?: Player[]
-    }) => {
-      setHasRoundEnded(true)
-      setIsChoosingWord(false)
-      setSelectedWord(payload.word)
-      setWordLength(payload.word.replace(/\s/g, '').length)
-      setTimeLeft(0)
-      setServerDeadline(null)
+  word?: string | null
+  scores?: Player[]
+}) => {
+  const word = typeof payload.word === 'string' ? payload.word : ''
 
-      if (payload.scores) {
-        setGamePlayers(
-          payload.scores.map((player, index) => ({
-            ...player,
-            rank: index + 1,
-          })),
-        )
-      }
-    }
+  setHasRoundEnded(true)
+  setIsChoosingWord(false)
+  setSelectedWord(word)
+  setWordLength(word.replace(/\s/g, '').length)
+  setTimeLeft(0)
+  setServerDeadline(null)
+
+  activeStrokeRef.current = null
+  isDrawingRef.current = false
+
+  if (payload.scores) {
+    setGamePlayers(
+      payload.scores.map((player, index) => ({
+        ...player,
+        rank: index + 1,
+      })),
+    )
+  }
+}
 
     const handleGameOver = (payload: {
       winner: Player | null
