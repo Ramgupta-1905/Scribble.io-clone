@@ -5,22 +5,38 @@ const cors = require('cors')
 const crypto = require('crypto')
 const { Server } = require('socket.io')
 
-const app = express()
-const server = http.createServer(app)
 
-app.use(cors())
+
+const app = express()
+
+const allowedOrigins = (
+  process.env.FRONTEND_URL ||
+  'https://skribbl-clone-frontend-vla2.onrender.com'
+)
+  .split(',')
+  .map((url) => url.trim())
+
+app.use(
+  cors({
+    origin: allowedOrigins,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    credentials: true,
+  })
+)
+
 app.use(express.json())
 
-const allowedOrigins = process.env.FRONTEND_URL
-  ? process.env.FRONTEND_URL.split(',').map((url) => url.trim())
-  : '*'
+const server = http.createServer(app)
 
 const io = new Server(server, {
   cors: {
     origin: allowedOrigins,
     methods: ['GET', 'POST'],
+    credentials: true,
   },
 })
+
+
 
 const PORT = process.env.PORT || 3001
 const rooms = new Map()
@@ -820,8 +836,18 @@ function chooseWord(socket, payload = {}) {
 }
 
 
+
 function drawEvent(socket, event, payload = {}) {
   const room = getRoomForSocket(socket)
+
+  console.log('[DRAW EVENT RECEIVED]', {
+    event,
+    socketId: socket.id,
+    roomCode: socketRooms.get(socket.id) || null,
+    roomFound: Boolean(room),
+    phase: room?.status,
+    drawerId: room?.players[room.drawerIndex]?.id ?? null,
+  })
 
   if (!room || room.status !== 'playing') {
     console.log('[DRAW REJECTED: ROOM/PHASE]', {
@@ -832,6 +858,7 @@ function drawEvent(socket, event, payload = {}) {
     })
     return
   }
+
 
   const drawer = room.players[room.drawerIndex]
 
@@ -1189,14 +1216,6 @@ socket.on('quick_play', (payload = {}) => {
 
   socket.on('request_game_sync', () => {
     const room = getRoomForSocket(socket)
-    console.log('[DRAW EVENT RECEIVED]', {
-  event,
-  socketId: socket.id,
-  roomCode: socketRooms.get(socket.id) || null,
-  roomFound: Boolean(room),
-  phase: room?.status,
-  drawerId: room?.players[room.drawerIndex]?.id ?? null,
-})
     const player = getPlayer(room, socket)
 
     if (!room || !player) return
