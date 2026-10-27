@@ -134,10 +134,10 @@ npm install
 Create a `.env` file inside the `frontend/` directory:
 
 ```env
-VITE_SERVER_URL=http://localhost:3000
+VITE_SERVER_URL=http://localhost:3001
 ```
 
-Replace `3000` with the port configured by your backend if it differs.
+The backend defaults to port `3001`; update this URL if you configure a different port.
 
 Start the frontend:
 

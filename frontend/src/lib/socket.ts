@@ -8,7 +8,7 @@ const SERVER_URL =
 export const socket = io(SERVER_URL, {
   autoConnect: true,
   reconnection: true,
-  reconnectionAttempts: Infinity,
+  reconnectionAttempts: 5,
   reconnectionDelay: 1000,
   reconnectionDelayMax: 5000,
   timeout: 20000,

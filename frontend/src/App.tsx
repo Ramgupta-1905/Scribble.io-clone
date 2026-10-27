@@ -45,6 +45,12 @@ type ServerRoom = {
 const PLAYER_STORAGE_KEY = 'skribbl-local-player'
 const SESSION_STORAGE_KEY = 'skribbl-session'
 
+type ConnectionStatus =
+  | 'connecting'
+  | 'reconnecting'
+  | 'connected'
+  | 'disconnected'
+
 function loadPlayer(): SavedPlayer {
   try {
     const saved = localStorage.getItem(PLAYER_STORAGE_KEY)
@@ -158,7 +164,10 @@ function AppRoutes() {
   const [room, setRoom] = useState<GameRoom | null>(null)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [error, setError] = useState('')
-  const [isReconnecting, setIsReconnecting] = useState(!socket.connected)
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(
+    socket.connected ? 'connected' : 'connecting',
+  )
+  const [connectionError, setConnectionError] = useState('')
 
   const previousPathRef = useRef(location.pathname)
   const restoredSessionRef = useRef<{
@@ -352,25 +361,50 @@ useEffect(() => {
   }, [navigate, location.pathname, location.search])
 
   useEffect(() => {
-    const onConnect = () => setIsReconnecting(false)
-    const onDisconnect = () => setIsReconnecting(true)
+    const onConnect = () => {
+      setConnectionStatus('connected')
+      setConnectionError('')
+    }
+
+    const onConnectError = (connectionError: Error) => {
+      setConnectionStatus(
+        socket.active ? 'reconnecting' : 'disconnected',
+      )
+      setConnectionError(connectionError.message)
+    }
+
+    const onDisconnect = (reason: string) => {
+      const reconnectsAutomatically =
+        reason !== 'io server disconnect' && reason !== 'io client disconnect'
+
+      setConnectionStatus(
+        reconnectsAutomatically ? 'reconnecting' : 'disconnected',
+      )
+      setConnectionError(reason)
+    }
+
+    const onReconnectAttempt = () => {
+      setConnectionStatus('reconnecting')
+    }
+
+    const onReconnectFailed = () => {
+      setConnectionStatus('disconnected')
+    }
 
     socket.on('connect', onConnect)
+    socket.on('connect_error', onConnectError)
     socket.on('disconnect', onDisconnect)
+    socket.io.on('reconnect_attempt', onReconnectAttempt)
+    socket.io.on('reconnect_failed', onReconnectFailed)
 
-    if (socket.connected) {
-      setIsReconnecting(false)
-    }
+    if (socket.connected) onConnect()
 
     return () => {
       socket.off('connect', onConnect)
+      socket.off('connect_error', onConnectError)
       socket.off('disconnect', onDisconnect)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!socket.connected) {
-      socket.connect()
+      socket.io.off('reconnect_attempt', onReconnectAttempt)
+      socket.io.off('reconnect_failed', onReconnectFailed)
     }
   }, [])
 
@@ -454,6 +488,18 @@ useEffect(() => {
     })
   }, [location.pathname, location.search])
 
+  const ensureSocketConnected = () => {
+    if (socket.connected) return true
+
+    if (connectionStatus === 'disconnected') {
+      setConnectionStatus('connecting')
+      setConnectionError('')
+      socket.connect()
+    }
+
+    return false
+  }
+
   const openGame = (
     name: string,
     selectedLanguage: string,
@@ -466,9 +512,7 @@ useEffect(() => {
       return
     }
 
-    if (!socket.connected) {
-      setError('Connecting to the game server. Please try again shortly.')
-      socket.connect()
+    if (!ensureSocketConnected()) {
       return
     }
 
@@ -496,9 +540,7 @@ useEffect(() => {
       return
     }
 
-    if (!socket.connected) {
-      setError('Connecting to the game server. Please try again shortly.')
-      socket.connect()
+    if (!ensureSocketConnected()) {
       return
     }
 
@@ -538,9 +580,7 @@ useEffect(() => {
       return
     }
 
-    if (!socket.connected) {
-      setError('Connecting to the game server. Please try again shortly.')
-      socket.connect()
+    if (!ensureSocketConnected()) {
       return
     }
 
@@ -585,6 +625,25 @@ useEffect(() => {
     })
   }
 
+  const retryConnection = () => {
+    if (socket.connected) return
+
+    setConnectionStatus('connecting')
+    setConnectionError('')
+    socket.connect()
+  }
+
+  const connectionMessage =
+    connectionStatus === 'connecting'
+      ? 'Connecting to the game server...'
+      : connectionStatus === 'reconnecting'
+        ? `Connection interrupted. Retrying...${
+            connectionError ? ` (${connectionError})` : ''
+          }`
+        : `Unable to connect to the game server. Check your connection and retry.${
+            connectionError ? ` (${connectionError})` : ''
+          }`
+
   return (
     <>
       {error && (
@@ -592,9 +651,18 @@ useEffect(() => {
           {error}
         </div>
       )}
-      {isReconnecting && location.pathname === '/game' && (
-        <div role="status" className="connection-status">
-          Connection lost. Reconnecting and restoring your room...
+      {connectionStatus !== 'connected' && (
+        <div
+          role={connectionStatus === 'disconnected' ? 'alert' : 'status'}
+          aria-live="polite"
+          className={`connection-status${connectionStatus === 'disconnected' ? ' connection-status--error' : ''}`}
+        >
+          <span>{connectionMessage}</span>
+          {connectionStatus === 'disconnected' && (
+            <button type="button" onClick={retryConnection}>
+              Retry
+            </button>
+          )}
         </div>
       )}
 

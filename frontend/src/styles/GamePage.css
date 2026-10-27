@@ -634,6 +634,24 @@
   font-size: 14px;
 }
 
+.connection-status--error {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-color: #b42318;
+  background: #fff1f0;
+  color: #7a271a;
+}
+
+.connection-status button {
+  padding: 4px 10px;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  background: #fff;
+  color: inherit;
+  cursor: pointer;
+}
+
 /* Settings drawer */
 
 
